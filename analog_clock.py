@@ -71,35 +71,17 @@ class AnalogClock:
         c.create_oval(
             self.cx - self.radius, self.cy - self.radius,
             self.cx + self.radius, self.cy + self.radius,
-            fill="#000000", outline="#e0e0e0", width=3,
+            fill="#000000", outline="#333333", width=1,
         )
 
-        # 時間マーカー
-        for i in range(60):
-            angle = math.radians(i * 6 - 90)
-            if i % 5 == 0:
-                outer = self.radius - 2
-                inner = self.radius - 14
-                width = 2
-                color = "#e0e0e0"
-            else:
-                outer = self.radius - 5
-                inner = self.radius - 10
-                width = 1
-                color = "#555577"
-            x1 = self.cx + inner * math.cos(angle)
-            y1 = self.cy + inner * math.sin(angle)
-            x2 = self.cx + outer * math.cos(angle)
-            y2 = self.cy + outer * math.sin(angle)
-            c.create_line(x1, y1, x2, y2, width=width, fill=color)
-
-        # 数字
-        for i in range(1, 13):
+        # 時間マーカー（12時位置のみドット、他は小ドット）
+        for i in range(12):
             angle = math.radians(i * 30 - 90)
-            r = self.radius - 28
+            r = self.radius - 6
             x = self.cx + r * math.cos(angle)
             y = self.cy + r * math.sin(angle)
-            c.create_text(x, y, text=str(i), fill="#c0c0d0", font=("Helvetica", 8, "bold"))
+            size = 3 if i % 3 == 0 else 1.5
+            c.create_oval(x - size, y - size, x + size, y + size, fill="#555555", outline="")
 
         now = time.localtime()
         h = now.tm_hour % 12
@@ -108,23 +90,23 @@ class AnalogClock:
 
         # 時針
         hour_angle = (h + m / 60) * 30
-        self._hand(hour_angle, self.radius * 0.5, 6, "#e0e0e0")
+        self._hand(hour_angle, self.radius * 0.5, 4, "#ffffff")
 
         # 分針
         min_angle = (m + s / 60) * 6
-        self._hand(min_angle, self.radius * 0.72, 4, "#c0c8ff")
+        self._hand(min_angle, self.radius * 0.72, 2, "#ffffff")
 
         # 秒針
         sec_angle = s * 6
-        self._hand(sec_angle, self.radius * 0.82, 2, "#ff6b6b")
+        self._hand(sec_angle, self.radius * 0.82, 1, "#ff4444")
 
         # 中心ドット
-        r = 6
-        c.create_oval(self.cx - r, self.cy - r, self.cx + r, self.cy + r, fill="#ff6b6b", outline="")
+        r = 3
+        c.create_oval(self.cx - r, self.cy - r, self.cx + r, self.cy + r, fill="#ffffff", outline="")
 
         # 日付表示（文字盤の下）
         date_str = time.strftime("%Y-%m-%d")
-        c.create_text(self.cx, self.size + self.date_area // 2, text=date_str, fill="#8888aa", font=("Helvetica", 10))
+        c.create_text(self.cx, self.size + self.date_area // 2, text=date_str, fill="#444444", font=("Helvetica", 10))
 
     def tick(self):
         self.draw()
