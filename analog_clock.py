@@ -32,9 +32,13 @@ class AnalogClock:
 
     def _make_draggable(self):
         self._transparent = False
+        self._aiin = False
+        self._aiin_job = None
+        self._click_job = None
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
+        self.canvas.bind("<Double-Button-1>", self._on_double_click)
         self.canvas.bind("<ButtonPress-3>", lambda e: self.root.destroy())
 
     def _on_press(self, event):
@@ -50,9 +54,26 @@ class AnalogClock:
 
     def _on_release(self, event):
         if not self._moved:
-            self._transparent = not self._transparent
-            alpha = 0.3 if self._transparent else 1.0
-            self.root.attributes("-alpha", alpha)
+            self._click_job = self.root.after(250, self._on_single_click)
+
+    def _on_single_click(self):
+        self._click_job = None
+        if self._aiin_job:
+            self.root.after_cancel(self._aiin_job)
+        self._aiin = True
+        self._aiin_job = self.root.after(2000, self._hide_aiin)
+
+    def _hide_aiin(self):
+        self._aiin = False
+        self._aiin_job = None
+
+    def _on_double_click(self, event):
+        if self._click_job:
+            self.root.after_cancel(self._click_job)
+            self._click_job = None
+        self._transparent = not self._transparent
+        alpha = 0.3 if self._transparent else 1.0
+        self.root.attributes("-alpha", alpha)
 
     def _hand(self, angle_deg, length, width, color):
         angle = math.radians(angle_deg - 90)
@@ -103,6 +124,11 @@ class AnalogClock:
         # 中心ドット
         r = 3
         c.create_oval(self.cx - r, self.cy - r, self.cx + r, self.cy + r, fill="#ffffff", outline="")
+
+        # アイーン表示
+        if self._aiin:
+            c.create_text(self.cx, self.cy - self.radius * 0.6, text="アイーン♡",
+                          fill="#ff69b4", font=("Helvetica", 9, "bold"))
 
         # 日付表示（文字盤の下）
         date_str = time.strftime("%Y-%m-%d")
