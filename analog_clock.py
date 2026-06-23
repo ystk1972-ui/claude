@@ -1,6 +1,7 @@
 import tkinter as tk
 import math
 import time
+import ctypes
 
 
 class AnalogClock:
@@ -35,6 +36,8 @@ class AnalogClock:
         self._aiin = False
         self._aiin_job = None
         self._click_job = None
+        self._skip_release = False
+        self._dclick_ms = ctypes.windll.user32.GetDoubleClickTime()
         self.canvas.bind("<ButtonPress-1>", self._on_press)
         self.canvas.bind("<B1-Motion>", self._on_drag_motion)
         self.canvas.bind("<ButtonRelease-1>", self._on_release)
@@ -53,8 +56,13 @@ class AnalogClock:
         self.root.geometry(f"+{x}+{y}")
 
     def _on_release(self, event):
+        if self._skip_release:
+            self._skip_release = False
+            return
         if not self._moved:
-            self._click_job = self.root.after(250, self._on_single_click)
+            if self._click_job:
+                self.root.after_cancel(self._click_job)
+            self._click_job = self.root.after(self._dclick_ms, self._on_single_click)
 
     def _on_single_click(self):
         self._click_job = None
@@ -71,6 +79,7 @@ class AnalogClock:
         if self._click_job:
             self.root.after_cancel(self._click_job)
             self._click_job = None
+        self._skip_release = True
         self._transparent = not self._transparent
         alpha = 0.3 if self._transparent else 1.0
         self.root.attributes("-alpha", alpha)
