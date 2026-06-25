@@ -635,9 +635,11 @@ class ThreadCuttingApp(tk.Tk):
         grp6 = ttk.LabelFrame(left, text="6. インサートチップ ノーズR (mm)", padding=8)
         grp6.pack(fill="x", pady=(0, 8))
 
-        self.noser_var = tk.StringVar(value="0.2")
+        self.noser_var = tk.StringVar(value="0.1")
         cb_nr = ttk.Combobox(grp6, textvariable=self.noser_var,
-                              values=["0.1", "0.2", "0.4", "0.8"], width=8)
+                              values=["0.06","0.07","0.08","0.09","0.1","0.11",
+                                      "0.12","0.15","0.19","0.22","0.25","0.32"],
+                              width=8)
         cb_nr.pack(anchor="w")
 
         # ---- 生成ボタン ----
