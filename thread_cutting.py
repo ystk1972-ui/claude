@@ -283,6 +283,19 @@ def _D1_minor_avg(D1_basic: float, pitch: float) -> float:
     return round(D1_basic + TD1 / 2, 4)
 
 
+def _d_nominal_from_key(size_name: str, val: tuple):
+    """データベース行から公称外径（山径）を返す。取得できない場合は None。"""
+    if len(val) >= 3:
+        return val[2]
+    try:
+        return float(
+            size_name.lstrip("M").split("x")[0].split("W")[0]
+            .replace('"', '').replace("'", "").strip()
+        )
+    except ValueError:
+        return None
+
+
 def _d2_avg(d2_basic: float, pitch: float, is_external: bool) -> float:
     """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。
 
@@ -764,25 +777,25 @@ class ThreadCuttingApp(tk.Tk):
                 continue
             pitch = key[1]
 
+            is_55deg = any(k in ttype for k in ("テーパー", "NPT", "管用平行", "ウィット"))
+
             if is_ext:
-                # 雄ねじ: 山径（外径）の公差域中間値
-                if len(val) >= 3:
-                    d_basic = val[2]
-                else:
-                    try:
-                        d_basic = float(
-                            size_name.lstrip("M").split("x")[0].split("W")[0]
-                            .replace('"', '').replace("'", "").strip()
-                        )
-                    except ValueError:
-                        d_basic = val[0]
+                # 雄ねじ: 山径（外径）公差域中間値
+                d_basic = _d_nominal_from_key(size_name, val) or val[0]
                 try:
                     self.diam_var.set(f"{_d_major_avg(d_basic, pitch):.3f}")
                 except Exception:
                     self.diam_var.set(f"{d_basic:.3f}")
             else:
-                # 雌ねじ: 谷径（内径）の公差域中間値
-                D1_basic = val[1]
+                # 雌ねじ: 谷径（内径）公差域中間値
+                # 60°ねじ: val[1]=外ねじ谷径(d-1.2269P)なので
+                #           内ねじD1 = d - 1.0825P を別途算出する
+                # 55°ねじ: val[1]が内外共通基準谷径なのでそのまま使用
+                if is_55deg:
+                    D1_basic = val[1]
+                else:
+                    d_nomi = _d_nominal_from_key(size_name, val)
+                    D1_basic = (d_nomi - 1.0825 * pitch) if d_nomi is not None else val[1]
                 try:
                     self.diam_var.set(f"{_D1_minor_avg(D1_basic, pitch):.3f}")
                 except Exception:
