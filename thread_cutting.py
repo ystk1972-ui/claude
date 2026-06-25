@@ -264,37 +264,57 @@ def _d2_avg(d2_basic: float, pitch: float, is_external: bool) -> float:
 # ============================================================
 
 def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
-                      is_external: bool, d2_basic: float = None) -> dict:
+                      is_external: bool, d2_basic: float = None,
+                      d_nominal: float = None) -> dict:
     """
-    ねじ切り深さと切り込み回数を計算する。
-    ISO/IEC ねじ山プロファイル（60°）ベース。
-    管用テーパー・ウィットは55°。
+    ねじ切りX目標径と切り込み深さを計算する。
+
+    雄ねじ X目標径:
+        ((d2_avg/2) - (P/4)/tan(θ/2) + (nose_r/sin(θ/2)) - nose_r) * 2
+    雌ねじ X目標径:
+        ((d2_avg/2) + (P/4)/tan(θ/2) - (nose_r/sin(θ/2)) + nose_r) * 2
+
+    d_nominal が与えられた場合のみ上式を使用。未指定時はピッチ基準のフォールバック。
     """
     is_55deg = ("テーパー" in thread_type or "NPT" in thread_type or
                 "管用平行" in thread_type or "ウィット" in thread_type)
+    theta_half = 27.5 if is_55deg else 30.0
+    angle_deg  = 55   if is_55deg else 60
 
-    if is_55deg:
-        # 55° ねじ山 (Whitworth プロファイル)
-        h = 0.9605 * pitch          # ねじ山高さ理論値
-        r_adj = nose_r / math.sin(math.radians(27.5))
+    tan_th = math.tan(math.radians(theta_half))
+    sin_th = math.sin(math.radians(theta_half))
+
+    d2_ext_avg = _d2_avg(d2_basic, pitch, True)  if d2_basic is not None else None
+    d2_int_avg = _d2_avg(d2_basic, pitch, False) if d2_basic is not None else None
+    d2_avg = (d2_ext_avg if is_external else d2_int_avg)
+
+    if d2_avg is not None and d_nominal is not None:
+        # ユーザー指定式で X目標径（直径値）を算出
+        if is_external:
+            x_target = ((d2_avg / 2) - (pitch / 4) / tan_th
+                        + (nose_r / sin_th) - nose_r) * 2
+            actual_depth = (d_nominal - x_target) / 2
+        else:
+            x_target = ((d2_avg / 2) + (pitch / 4) / tan_th
+                        - (nose_r / sin_th) + nose_r) * 2
+            actual_depth = (x_target - d_nominal) / 2
+        x_target = round(x_target, 4)
+        h_theory  = round(pitch / (2 * tan_th), 4)   # 有効径→谷径 片側
+        nose_corr = round(nose_r / sin_th - nose_r, 4)
     else:
-        # 60° ねじ山 (メートル/ユニファイ)
-        h = 0.8660 * pitch          # ねじ山高さ理論値
-        r_adj = nose_r / math.sin(math.radians(30))
+        # フォールバック（d2_basic / d_nominal 未入力時）
+        h_theory  = round((0.9605 if is_55deg else 0.8660) * pitch, 4)
+        nose_corr = round(nose_r * (1 - sin_th), 4)
+        actual_depth = h_theory - nose_r * (1 - sin_th)
+        if not is_external:
+            actual_depth *= 1.08
+        x_target = None
 
-    # 実切り込み深さ = 理論高さ - ノーズR分の補正
-    # ISO 68-1: 雄ねじ有効切り込み = h - r_correction
-    nose_correction = nose_r * (1.0 / math.tan(math.radians(30 if not is_55deg else 27.5)))
-    actual_depth = h - nose_r * (1 - math.sin(math.radians(30 if not is_55deg else 27.5)))
+    actual_depth = round(abs(actual_depth), 4)
 
-    # 雌ねじは少し深めに (公差分)
-    if not is_external:
-        actual_depth *= 1.08
-
-    # 切り込み回数（等分切り込み：各パスの切り込み量を一定）
-    # 推奨：初回 0.3P 以下、最小 0.05mm
+    # 等断面積法による漸減切り込みリスト
     first_cut = min(0.3 * pitch, actual_depth * 0.4)
-    min_cut = max(0.05, pitch * 0.02)
+    min_cut   = max(0.05, pitch * 0.02)
 
     cuts = []
     remaining = actual_depth
@@ -303,31 +323,26 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
         if cut_num == 1:
             c = first_cut
         else:
-            # 漸減切り込み（等切り込み断面積法）
-            c = math.sqrt(cut_num) * first_cut - math.sqrt(cut_num - 1) * first_cut
+            c = (math.sqrt(cut_num) - math.sqrt(cut_num - 1)) * first_cut
             c = max(c, min_cut)
         c = min(c, remaining)
         cuts.append(round(c, 4))
         remaining -= c
         if remaining <= min_cut:
-            if cuts:
-                cuts[-1] += remaining
-                cuts[-1] = round(cuts[-1], 4)
+            cuts[-1] = round(cuts[-1] + remaining, 4)
             remaining = 0
         cut_num += 1
 
-    d2_ext_avg = _d2_avg(d2_basic, pitch, True)  if d2_basic is not None else None
-    d2_int_avg = _d2_avg(d2_basic, pitch, False) if d2_basic is not None else None
-
     return {
-        "total_depth": round(actual_depth, 4),
-        "h_theory": round(h, 4),
-        "nose_correction": round(nose_r * (1 - math.sin(math.radians(30 if not is_55deg else 27.5))), 4),
-        "cuts": cuts,
-        "angle_deg": 55 if is_55deg else 60,
-        "d2_basic":   round(d2_basic, 4) if d2_basic is not None else None,
-        "d2_ext_avg": d2_ext_avg,
-        "d2_int_avg": d2_int_avg,
+        "total_depth": actual_depth,
+        "x_target":    x_target,
+        "h_theory":    h_theory,
+        "nose_correction": nose_corr,
+        "cuts":        cuts,
+        "angle_deg":   angle_deg,
+        "d2_basic":    round(d2_basic, 4) if d2_basic is not None else None,
+        "d2_ext_avg":  d2_ext_avg,
+        "d2_int_avg":  d2_int_avg,
     }
 
 
@@ -360,12 +375,14 @@ def generate_okuma(params: dict) -> str:
     cut_mode   = t.get("cut_mode", "M74")
 
     # X アプローチ・ねじ谷径（直径値）
+    # x_target が計算済みであればそれを使用、なければ total_depth から算出
+    x_target = depth_info.get("x_target")
     if is_external:
         x_approach = round(d_nominal + 2.0, 3)
-        x_root     = round(d_nominal - total_depth * 2, 3)   # 谷径
+        x_root = round(x_target, 3) if x_target is not None else round(d_nominal - total_depth * 2, 3)
     else:
         x_approach = round(d_nominal - 2.0, 3)
-        x_root     = round(d_nominal + total_depth * 2, 3)   # 谷径（内側）
+        x_root = round(x_target, 3) if x_target is not None else round(d_nominal + total_depth * 2, 3)
 
     # G71 パラメータ（半径値）
     d1   = round(cuts[0], 4)                          # 初回切り込み
@@ -441,11 +458,12 @@ def generate_fanuc(params: dict) -> str:
     min_cut_um   = max(50, int(min(cuts) * 1000))
     depth_um     = int(total_depth * 1000)
 
+    x_target = depth_info.get("x_target")
     if is_external:
-        x_end_dia = round(d_nominal - total_depth * 2, 3)
+        x_end_dia  = round(x_target, 3) if x_target is not None else round(d_nominal - total_depth * 2, 3)
         x_approach = round(d_nominal + 2.0, 3)
     else:
-        x_end_dia = round(d_nominal + total_depth * 2, 3)
+        x_end_dia  = round(x_target, 3) if x_target is not None else round(d_nominal + total_depth * 2, 3)
         x_approach = round(d_nominal - 2.0, 3)
 
     taper_i = 0.0
@@ -725,7 +743,7 @@ class ThreadCuttingApp(tk.Tk):
                 return
 
             d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
-            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic)
+            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam)
 
             params = {
                 "thread_name": f"{size_nm}  P={pitch:.4f}mm",
@@ -748,18 +766,18 @@ class ThreadCuttingApp(tk.Tk):
             # 計算情報表示
             d2e = depth_info["d2_ext_avg"]
             d2i = depth_info["d2_int_avg"]
+            xt = depth_info["x_target"]
             info_lines = [
-                f"ねじ山角度        : {depth_info['angle_deg']}°",
-                f"基準有効径(d2基本) : {depth_info['d2_basic']:.4f} mm",
-                f"雄ねじ有効径(6g平均): {d2e:.4f} mm" if d2e else "",
-                f"雌ねじ有効径(6H平均): {d2i:.4f} mm" if d2i else "",
-                f"理論山高さ        : {depth_info['h_theory']:.4f} mm",
-                f"ノーズR補正       : {depth_info['nose_correction']:.4f} mm",
-                f"実切り込み深さ    : {depth_info['total_depth']:.4f} mm",
-                f"パス数            : {len(depth_info['cuts'])}",
-                f"各パス切り込み    : {[f'{c:.4f}' for c in depth_info['cuts']]}",
+                f"ねじ山角度         : {depth_info['angle_deg']}°",
+                f"基準有効径(d2基本)  : {depth_info['d2_basic']:.4f} mm"  if depth_info['d2_basic'] else "",
+                f"雄ねじ有効径(6g平均): {d2e:.4f} mm"                     if d2e else "",
+                f"雌ねじ有効径(6H平均): {d2i:.4f} mm"                     if d2i else "",
+                f"X目標径(谷径/山径) : {xt:.4f} mm"                       if xt is not None else "",
+                f"切り込み深さ(片側) : {depth_info['total_depth']:.4f} mm",
+                f"パス数             : {len(depth_info['cuts'])}",
+                f"各パス切り込み     : {[f'{c:.4f}' for c in depth_info['cuts']]}",
             ]
-            info_lines = [l for l in info_lines if l]  # 空行除去
+            info_lines = [l for l in info_lines if l]
             self._set_text(self.info_text, "\n".join(info_lines))
             self._set_text(self.prog_text, program)
 
