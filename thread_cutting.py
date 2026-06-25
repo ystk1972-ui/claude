@@ -295,6 +295,7 @@ def generate_okuma(params: dict) -> str:
     total_depth = depth_info["total_depth"]
     cuts       = depth_info["cuts"]
     angle      = depth_info["angle_deg"]
+    cut_mode   = t.get("cut_mode", "M74")
 
     # X アプローチ・ねじ谷径（直径値）
     if is_external:
@@ -323,11 +324,11 @@ def generate_okuma(params: dict) -> str:
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
-        f"( Cycle  : G71 長手ねじ切り複合サイクル )",
+        f"( Cycle  : G71 長手ねじ切り複合サイクル / {cut_mode} )",
         "",
         "N10 G28 U0 W0",
         "N20 G50 S2000",
-        "N30 G97 S500 M03",
+        f"N30 G97 S500 M03 {cut_mode}",
         "N40 G00 T0101",
         f"N50 G00 X{x_approach:.3f} Z{z_approach:.3f}",
         "",
@@ -497,9 +498,24 @@ class ThreadCuttingApp(tk.Tk):
 
         self.nc_var = tk.StringVar(value="ファナック")
         fr3 = ttk.Frame(grp3)
-        fr3.pack()
-        ttk.Radiobutton(fr3, text="ファナック (G76)", variable=self.nc_var, value="ファナック").pack(anchor="w")
-        ttk.Radiobutton(fr3, text="オークマ (G32)", variable=self.nc_var,  value="オークマ").pack(anchor="w")
+        fr3.pack(fill="x")
+        ttk.Radiobutton(fr3, text="ファナック (G76)", variable=self.nc_var,
+                        value="ファナック", command=self._on_nc_change).pack(anchor="w")
+        ttk.Radiobutton(fr3, text="オークマ (G71)", variable=self.nc_var,
+                        value="オークマ",  command=self._on_nc_change).pack(anchor="w")
+
+        # 切削モード（オークマ選択時のみ表示）
+        self.mode_frame = ttk.Frame(grp3)
+        ttk.Label(self.mode_frame, text="切削モード:").pack(anchor="w")
+        self.cut_mode_var = tk.StringVar(value="M74")
+        modes = [
+            ("M73  両刃切削（ラジアル送り）",   "M73"),
+            ("M74  片刃切削（フランク送り）",   "M74"),
+            ("M75  交互片刃切削",              "M75"),
+        ]
+        for label, val in modes:
+            ttk.Radiobutton(self.mode_frame, text=label,
+                            variable=self.cut_mode_var, value=val).pack(anchor="w")
 
         # ---- 4. サイズ・ピッチ ----
         grp4 = ttk.LabelFrame(left, text="4. ねじサイズ / ピッチ", padding=8)
@@ -570,6 +586,12 @@ class ThreadCuttingApp(tk.Tk):
         copy_btn.pack(fill="x", pady=(4, 0))
 
     # ----------------------------------------------------------
+    def _on_nc_change(self):
+        if self.nc_var.get() == "オークマ":
+            self.mode_frame.pack(fill="x", pady=(6, 0))
+        else:
+            self.mode_frame.pack_forget()
+
     def _on_type_change(self):
         ttype = self.thread_type_var.get()
         db = THREAD_DB[ttype]
@@ -652,6 +674,7 @@ class ThreadCuttingApp(tk.Tk):
                 "is_taper":    ttype in TAPER_TYPES,
                 "d_nominal":   diam,
                 "nose_r":      nose_r,
+                "cut_mode":    self.cut_mode_var.get(),
             }
 
             if nc == "オークマ":
