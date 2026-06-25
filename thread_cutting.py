@@ -240,6 +240,49 @@ _PD_TOL_6HG = {
 }
 
 
+# 外ねじ 山径公差 (6g, Td) — pitch: Td (mm)  ISO 965-1 Table 4
+_MAJOR_TOL_6G = {
+    0.20: 0.032, 0.25: 0.042, 0.30: 0.048, 0.35: 0.053,
+    0.40: 0.060, 0.45: 0.063, 0.50: 0.071, 0.60: 0.080,
+    0.70: 0.090, 0.75: 0.090, 0.80: 0.095, 0.90: 0.100,
+    1.00: 0.112, 1.25: 0.132, 1.50: 0.150, 1.75: 0.160,
+    2.00: 0.180, 2.50: 0.212, 3.00: 0.236, 3.50: 0.265,
+    4.00: 0.280, 4.50: 0.315, 5.00: 0.355, 5.50: 0.375, 6.00: 0.400,
+}
+
+# 内ねじ 谷径公差 (6H, TD1) — pitch: TD1 (mm)  ISO 965-1 Table 6
+_MINOR_TOL_6H = {
+    0.20: 0.036, 0.25: 0.050, 0.30: 0.056, 0.35: 0.060,
+    0.40: 0.063, 0.45: 0.071, 0.50: 0.071, 0.60: 0.085,
+    0.70: 0.090, 0.75: 0.095, 0.80: 0.100, 0.90: 0.106,
+    1.00: 0.112, 1.25: 0.132, 1.50: 0.150, 1.75: 0.160,
+    2.00: 0.180, 2.50: 0.212, 3.00: 0.250, 3.50: 0.265,
+    4.00: 0.300, 4.50: 0.315, 5.00: 0.355, 5.50: 0.375, 6.00: 0.400,
+}
+
+
+def _d_major_avg(d_basic: float, pitch: float) -> float:
+    """外ねじ 山径（外径）の公差域中間値 (6g)。
+    d_max = d_basic + es,  d_min = d_max - Td
+    """
+    p  = min(_PD_TOL_6HG.keys(),   key=lambda x: abs(x - pitch))
+    p2 = min(_MAJOR_TOL_6G.keys(), key=lambda x: abs(x - pitch))
+    es = _PD_TOL_6HG[p][0]
+    Td = _MAJOR_TOL_6G[p2]
+    d_max = d_basic + es
+    d_min = d_max - Td
+    return round((d_max + d_min) / 2, 4)
+
+
+def _D1_minor_avg(D1_basic: float, pitch: float) -> float:
+    """内ねじ 谷径（内径）の公差域中間値 (6H)。
+    D1_min = D1_basic (EI=0),  D1_max = D1_basic + TD1
+    """
+    p   = min(_MINOR_TOL_6H.keys(), key=lambda x: abs(x - pitch))
+    TD1 = _MINOR_TOL_6H[p]
+    return round(D1_basic + TD1 / 2, 4)
+
+
 def _d2_avg(d2_basic: float, pitch: float, is_external: bool) -> float:
     """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。
 
@@ -569,8 +612,10 @@ class ThreadCuttingApp(tk.Tk):
         self.gender_var = tk.StringVar(value="外")
         fr2 = ttk.Frame(grp2)
         fr2.pack()
-        ttk.Radiobutton(fr2, text="雄ねじ (外ねじ)", variable=self.gender_var, value="外").pack(anchor="w")
-        ttk.Radiobutton(fr2, text="雌ねじ (内ねじ)", variable=self.gender_var, value="内").pack(anchor="w")
+        ttk.Radiobutton(fr2, text="雄ねじ (外ねじ)", variable=self.gender_var, value="外",
+                        command=self._set_default_diameter).pack(anchor="w")
+        ttk.Radiobutton(fr2, text="雌ねじ (内ねじ)", variable=self.gender_var, value="内",
+                        command=self._set_default_diameter).pack(anchor="w")
 
         # ---- 3. NCコントロール ----
         grp3 = ttk.LabelFrame(left, text="3. NCコントロール", padding=8)
@@ -613,6 +658,7 @@ class ThreadCuttingApp(tk.Tk):
         self.cb_pitch = ttk.Combobox(grp4, textvariable=self.pitch_var,
                                      state="readonly", width=18)
         self.cb_pitch.grid(row=1, column=1, padx=4, pady=2)
+        self.cb_pitch.bind("<<ComboboxSelected>>", lambda e: self._set_default_diameter())
 
         ttk.Label(grp4, text="外径/内径 (mm):").grid(row=2, column=0, sticky="w")
         self.diam_var = tk.StringVar()
@@ -701,25 +747,47 @@ class ThreadCuttingApp(tk.Tk):
         self._set_default_diameter()
 
     def _set_default_diameter(self):
-        ttype = self.thread_type_var.get()
-        db = THREAD_DB[ttype]
+        ttype     = self.thread_type_var.get()
+        db        = THREAD_DB[ttype]
         size_name = self.size_var.get()
+        is_ext    = (self.gender_var.get() == "外")
+
+        try:
+            cur_pitch = float(self.pitch_var.get())
+        except ValueError:
+            cur_pitch = None
 
         for key, val in db.items():
-            if key[0] == size_name:
-                # val は (d2, d1, d) or (d2, d1)
-                if len(val) == 3:
-                    d_outer = val[2]
+            if key[0] != size_name:
+                continue
+            if cur_pitch is not None and abs(key[1] - cur_pitch) > 1e-6:
+                continue
+            pitch = key[1]
+
+            if is_ext:
+                # 雄ねじ: 山径（外径）の公差域中間値
+                if len(val) >= 3:
+                    d_basic = val[2]
                 else:
-                    # メートルねじ等: 呼び径から外径を推定
                     try:
-                        num = float(size_name.lstrip("M").split("x")[0].split("W")[0]
-                                    .replace('"','').replace("'","").strip())
-                        d_outer = num
-                    except:
-                        d_outer = val[0]
-                self.diam_var.set(f"{d_outer:.3f}")
-                break
+                        d_basic = float(
+                            size_name.lstrip("M").split("x")[0].split("W")[0]
+                            .replace('"', '').replace("'", "").strip()
+                        )
+                    except ValueError:
+                        d_basic = val[0]
+                try:
+                    self.diam_var.set(f"{_d_major_avg(d_basic, pitch):.3f}")
+                except Exception:
+                    self.diam_var.set(f"{d_basic:.3f}")
+            else:
+                # 雌ねじ: 谷径（内径）の公差域中間値
+                D1_basic = val[1]
+                try:
+                    self.diam_var.set(f"{_D1_minor_avg(D1_basic, pitch):.3f}")
+                except Exception:
+                    self.diam_var.set(f"{D1_basic:.3f}")
+            break
 
     # ----------------------------------------------------------
     def _generate(self):
