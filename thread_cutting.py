@@ -270,75 +270,88 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str, is_external
 
 
 def generate_okuma(params: dict) -> str:
-    """オークマ OSP 形式のねじ切りプログラムを生成する。"""
+    """オークマ OSP 形式 G71 長手ねじ切り複合サイクルプログラムを生成する。
+
+    G71 フォーマット（OSP）:
+        G71 X(xe) Z(ze) D(d1) F(p) A(ang) K(depth) [I(taper)] Q(qmin) R(fin)
+          X   : ねじ谷径（径指定・直径値） ※雌ねじは山径
+          Z   : 切り終わりZ座標
+          D   : 初回切り込み量（半径値 mm）
+          F   : ピッチ（リード）mm
+          A   : ねじ山角度（60° or 55°）
+          K   : 総切り込み深さ（半径値 mm）
+          I   : テーパー量（半径差 mm、テーパーねじのみ）
+          Q   : 最小切り込み量（半径値 mm）
+          R   : 仕上げしろ（半径値 mm）
+    """
     t = params
     depth_info = t["depth_info"]
-    pitch = t["pitch"]
-    z_start = t["z_start"]
-    z_end = t["z_end"]
+    pitch      = t["pitch"]
+    z_start    = t["z_start"]
+    z_end      = t["z_end"]
     is_external = t["is_external"]
-    is_taper = t["is_taper"]
-    taper_angle = 1.7899  # 管用テーパー 1/16 rad→deg
-
-    d_nominal = t["d_nominal"]   # 外径（雄）or 谷径（雌）
+    is_taper   = t["is_taper"]
+    d_nominal  = t["d_nominal"]
     total_depth = depth_info["total_depth"]
+    cuts       = depth_info["cuts"]
+    angle      = depth_info["angle_deg"]
+
+    # X アプローチ・ねじ谷径（直径値）
+    if is_external:
+        x_approach = round(d_nominal + 2.0, 3)
+        x_root     = round(d_nominal - total_depth * 2, 3)   # 谷径
+    else:
+        x_approach = round(d_nominal - 2.0, 3)
+        x_root     = round(d_nominal + total_depth * 2, 3)   # 谷径（内側）
+
+    # G71 パラメータ（半径値）
+    d1   = round(cuts[0], 4)                          # 初回切り込み
+    qmin = round(max(0.02, min(cuts) * 0.8), 4)       # 最小切り込み
+    fin  = 0.05                                        # 仕上げしろ
+    k    = round(total_depth, 4)                       # 総深さ
+
+    # テーパー量 I：ねじ長さ ÷ 32（1/16テーパーの半径差）
+    taper_i = round(abs(z_end - z_start) / 32.0, 3) if is_taper else None
+
+    # アプローチZ（助走＝ピッチ×3）
+    z_approach = round(z_start + pitch * 3, 3)
 
     lines = [
         f"( *** NC Thread Cutting Program ***)",
         f"( Thread : {t['thread_name']} )",
         f"( Type   : {'雄ねじ' if is_external else '雌ねじ'} )",
         f"( Pitch  : {pitch:.4f} mm )",
-        f"( Depth  : {total_depth:.4f} mm  [{len(depth_info['cuts'])} passes] )",
+        f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
+        f"( Cycle  : G71 長手ねじ切り複合サイクル )",
         "",
         "N10 G28 U0 W0",
         "N20 G50 S2000",
         "N30 G97 S500 M03",
         "N40 G00 T0101",
+        f"N50 G00 X{x_approach:.3f} Z{z_approach:.3f}",
+        "",
+        "( G71 長手ねじ切り複合サイクル )",
     ]
 
-    if is_external:
-        x_start = d_nominal + 2.0   # アプローチX
-        x_base  = d_nominal
+    if is_taper:
+        lines.append(
+            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
+            f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
+            f"I{taper_i:.3f} Q{qmin:.4f} R{fin:.3f}"
+        )
     else:
-        x_start = d_nominal - 2.0
-        x_base  = d_nominal
-
-    lines.append(f"N50 G00 X{x_start:.3f} Z{z_start + pitch * 3:.3f}")
-    lines.append("")
-
-    seq = 60
-    cumulative = 0.0
-    for i, cut in enumerate(depth_info["cuts"]):
-        cumulative += cut
-        if is_external:
-            x_cut = round(x_base - cumulative * 2, 3)
-        else:
-            x_cut = round(x_base + cumulative * 2, 3)
-
-        lines.append(f"N{seq} ( Pass {i+1}: 切り込み {cut:.4f}mm / 累計 {cumulative:.4f}mm )")
-        lines.append(f"N{seq+1} G00 X{x_cut:.3f}")
-
-        if is_taper:
-            taper_k = round((z_end - z_start) / 32.0, 3)  # 1/16 テーパー
-            lines.append(f"N{seq+2} G32 X{x_cut:.3f} Z{z_end:.3f} F{pitch:.4f} K{taper_k:.3f}")
-        else:
-            lines.append(f"N{seq+2} G32 Z{z_end:.3f} F{pitch:.4f}")
-
-        lines.append(f"N{seq+3} G00 X{x_start:.3f}")
-        lines.append(f"N{seq+4} G00 Z{z_start + pitch * 3:.3f}")
-        lines.append("")
-        seq += 10
+        lines.append(
+            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
+            f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
+            f"Q{qmin:.4f} R{fin:.3f}"
+        )
 
     lines += [
-        f"N{seq} ( 仕上げパス )",
-        f"N{seq+1} G32 Z{z_end:.3f} F{pitch:.4f}",
-        f"N{seq+2} G00 X{x_start:.3f}",
-        f"N{seq+3} G00 Z{z_start + pitch * 3:.3f}",
         "",
-        f"N{seq+10} G28 U0 W0",
-        f"N{seq+20} M05",
-        f"N{seq+30} M30",
+        "N70 G28 U0 W0",
+        "N80 M05",
+        "N90 M30",
         "%",
     ]
     return "\n".join(lines)
