@@ -205,33 +205,94 @@ THREAD_DB = {
 TAPER_TYPES = {"管用テーパーねじ (R/Rc)", "アメリカ管用テーパーねじ (NPT)"}
 
 # ============================================================
+# 有効径公差テーブル（ISO 965-1 / JIS B 0209-1）
+# pitch (mm): (es, Td2, TD2)  単位 mm
+#   es  : 外ねじ 6g 基本寸法からの上の寸法差（負値）
+#   Td2 : 外ねじ 6g 有効径公差
+#   TD2 : 内ねじ 6H 有効径公差（下の寸法差 EI=0）
+# ============================================================
+_PD_TOL_6HG = {
+    0.20: (-0.017, 0.032, 0.045),
+    0.25: (-0.017, 0.036, 0.050),
+    0.30: (-0.017, 0.038, 0.053),
+    0.35: (-0.017, 0.040, 0.056),
+    0.40: (-0.017, 0.042, 0.060),
+    0.45: (-0.017, 0.048, 0.067),
+    0.50: (-0.020, 0.048, 0.071),
+    0.60: (-0.020, 0.053, 0.080),
+    0.70: (-0.020, 0.056, 0.085),
+    0.75: (-0.020, 0.063, 0.095),
+    0.80: (-0.020, 0.060, 0.090),
+    0.90: (-0.020, 0.063, 0.095),
+    1.00: (-0.026, 0.071, 0.106),
+    1.25: (-0.026, 0.080, 0.118),
+    1.50: (-0.026, 0.085, 0.125),
+    1.75: (-0.026, 0.090, 0.132),
+    2.00: (-0.032, 0.095, 0.140),
+    2.50: (-0.032, 0.106, 0.160),
+    3.00: (-0.038, 0.118, 0.170),
+    3.50: (-0.038, 0.125, 0.180),
+    4.00: (-0.038, 0.132, 0.190),
+    4.50: (-0.038, 0.140, 0.200),
+    5.00: (-0.038, 0.150, 0.212),
+    5.50: (-0.038, 0.160, 0.224),
+    6.00: (-0.038, 0.170, 0.236),
+}
+
+
+def _d2_avg(d2_basic: float, pitch: float, is_external: bool) -> float:
+    """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。
+
+    外ねじ 6g: d2_max = d2_basic + es
+               d2_min = d2_basic + es - Td2
+    内ねじ 6H: D2_min = d2_basic  (EI=0)
+               D2_max = d2_basic + TD2
+    """
+    p = min(_PD_TOL_6HG.keys(), key=lambda x: abs(x - pitch))
+    es, Td2, TD2 = _PD_TOL_6HG[p]
+    if is_external:
+        d2_max = d2_basic + es
+        d2_min = d2_basic + es - Td2
+    else:
+        d2_max = d2_basic + TD2
+        d2_min = d2_basic
+    return round((d2_max + d2_min) / 2, 4)
+
+
+# ============================================================
 # ねじ切り計算
 # ============================================================
 
-def calc_thread_depth(pitch: float, nose_r: float, thread_type: str, is_external: bool,
-                      depth_override: float = None) -> dict:
+def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
+                      is_external: bool, d2_basic: float = None) -> dict:
     """
     ねじ切り深さと切り込み回数を計算する。
-    depth_override が与えられた場合（有効径基準）はその値を実切り込み深さとして使う。
+    ISO/IEC ねじ山プロファイル（60°）ベース。
+    管用テーパー・ウィットは55°。
     """
     is_55deg = ("テーパー" in thread_type or "NPT" in thread_type or
                 "管用平行" in thread_type or "ウィット" in thread_type)
 
     if is_55deg:
-        h = 0.9605 * pitch
+        # 55° ねじ山 (Whitworth プロファイル)
+        h = 0.9605 * pitch          # ねじ山高さ理論値
+        r_adj = nose_r / math.sin(math.radians(27.5))
     else:
-        h = 0.8660 * pitch
+        # 60° ねじ山 (メートル/ユニファイ)
+        h = 0.8660 * pitch          # ねじ山高さ理論値
+        r_adj = nose_r / math.sin(math.radians(30))
 
-    half_ang = 27.5 if is_55deg else 30.0
-    nose_correction = round(nose_r * (1 - math.sin(math.radians(half_ang))), 4)
+    # 実切り込み深さ = 理論高さ - ノーズR分の補正
+    # ISO 68-1: 雄ねじ有効切り込み = h - r_correction
+    nose_correction = nose_r * (1.0 / math.tan(math.radians(30 if not is_55deg else 27.5)))
+    actual_depth = h - nose_r * (1 - math.sin(math.radians(30 if not is_55deg else 27.5)))
 
-    if depth_override is not None:
-        actual_depth = depth_override          # 有効径基準の深さをそのまま使用
-    else:
-        actual_depth = h - nose_r * (1 - math.sin(math.radians(half_ang)))
-        if not is_external:
-            actual_depth *= 1.08
+    # 雌ねじは少し深めに (公差分)
+    if not is_external:
+        actual_depth *= 1.08
 
+    # 切り込み回数（等分切り込み：各パスの切り込み量を一定）
+    # 推奨：初回 0.3P 以下、最小 0.05mm
     first_cut = min(0.3 * pitch, actual_depth * 0.4)
     min_cut = max(0.05, pitch * 0.02)
 
@@ -242,6 +303,7 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str, is_external
         if cut_num == 1:
             c = first_cut
         else:
+            # 漸減切り込み（等切り込み断面積法）
             c = math.sqrt(cut_num) * first_cut - math.sqrt(cut_num - 1) * first_cut
             c = max(c, min_cut)
         c = min(c, remaining)
@@ -254,12 +316,18 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str, is_external
             remaining = 0
         cut_num += 1
 
+    d2_ext_avg = _d2_avg(d2_basic, pitch, True)  if d2_basic is not None else None
+    d2_int_avg = _d2_avg(d2_basic, pitch, False) if d2_basic is not None else None
+
     return {
         "total_depth": round(actual_depth, 4),
         "h_theory": round(h, 4),
-        "nose_correction": nose_correction,
+        "nose_correction": round(nose_r * (1 - math.sin(math.radians(30 if not is_55deg else 27.5))), 4),
         "cuts": cuts,
         "angle_deg": 55 if is_55deg else 60,
+        "d2_basic":   round(d2_basic, 4) if d2_basic is not None else None,
+        "d2_ext_avg": d2_ext_avg,
+        "d2_int_avg": d2_int_avg,
     }
 
 
@@ -286,24 +354,24 @@ def generate_okuma(params: dict) -> str:
     is_external = t["is_external"]
     is_taper   = t["is_taper"]
     d_nominal  = t["d_nominal"]
-    d2         = t["d2"]                               # 有効径（ISO規格値）
-    x_prog     = t["x_prog"]                           # ノーズ中心X（加工後d2一致を保証）
     total_depth = depth_info["total_depth"]
     cuts       = depth_info["cuts"]
     angle      = depth_info["angle_deg"]
     cut_mode   = t.get("cut_mode", "M74")
 
-    # X アプローチ（外径基準）・X終点（ノーズ中心X）
+    # X アプローチ・ねじ谷径（直径値）
     if is_external:
         x_approach = round(d_nominal + 2.0, 3)
+        x_root     = round(d_nominal - total_depth * 2, 3)   # 谷径
     else:
         x_approach = round(d_nominal - 2.0, 3)
+        x_root     = round(d_nominal + total_depth * 2, 3)   # 谷径（内側）
 
     # G71 パラメータ（半径値）
     d1   = round(cuts[0], 4)                          # 初回切り込み
     qmin = round(max(0.02, min(cuts) * 0.8), 4)       # 最小切り込み
     fin  = 0.05                                        # 仕上げしろ
-    k    = round(total_depth, 4)                       # 総深さ（有効径基準）
+    k    = round(total_depth, 4)                       # 総深さ
 
     # テーパー量 I：ねじ長さ ÷ 32（1/16テーパーの半径差）
     taper_i = round(abs(z_end - z_start) / 32.0, 3) if is_taper else None
@@ -319,7 +387,6 @@ def generate_okuma(params: dict) -> str:
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
         f"( Cycle  : G71 長手ねじ切り複合サイクル / {cut_mode} )",
-        f"( d2={d2:.4f}mm  X={x_prog:.4f}mm [ノーズR{t['nose_r']}考慮] )",
         "",
         "N10 G28 U0 W0",
         "N20 G50 S2000",
@@ -332,13 +399,13 @@ def generate_okuma(params: dict) -> str:
 
     if is_taper:
         lines.append(
-            f"N60 G71 X{x_prog:.3f} Z{z_end:.3f} "
+            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
             f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
             f"I{taper_i:.3f} Q{qmin:.4f} R{fin:.3f}"
         )
     else:
         lines.append(
-            f"N60 G71 X{x_prog:.3f} Z{z_end:.3f} "
+            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
             f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
             f"Q{qmin:.4f} R{fin:.3f}"
         )
@@ -364,22 +431,21 @@ def generate_fanuc(params: dict) -> str:
     is_taper = t["is_taper"]
 
     d_nominal = t["d_nominal"]
-    d2        = t["d2"]                  # 有効径（ISO規格値）
-    x_prog    = t["x_prog"]              # ノーズ中心X（加工後d2一致を保証）
     total_depth = depth_info["total_depth"]
     cuts = depth_info["cuts"]
 
     # G76 パラメータ
+    # m=2(仕上げ回数), r=11(面取り), a=60or55(角度)
     angle = depth_info["angle_deg"]
     first_cut_um = int(cuts[0] * 1000)   # μm 単位
     min_cut_um   = max(50, int(min(cuts) * 1000))
     depth_um     = int(total_depth * 1000)
 
-    # X終点 = ノーズ中心X（ノーズRとねじ角度から逆算、加工後d2がISO値に一致）
-    x_end_dia  = round(x_prog, 3)
     if is_external:
+        x_end_dia = round(d_nominal - total_depth * 2, 3)
         x_approach = round(d_nominal + 2.0, 3)
     else:
+        x_end_dia = round(d_nominal + total_depth * 2, 3)
         x_approach = round(d_nominal - 2.0, 3)
 
     taper_i = 0.0
@@ -397,7 +463,6 @@ def generate_fanuc(params: dict) -> str:
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
-        f"( d2={d2:.4f}mm  X={x_prog:.4f}mm [ノーズR{t['nose_r']}考慮] )",
         "",
         "O0001",
         "N10 G28 U0 W0",
@@ -659,32 +724,8 @@ class ThreadCuttingApp(tk.Tk):
                 messagebox.showerror("エラー", f"サイズ/ピッチの組み合わせ ({size_nm}, {pitch}) が見つかりません。")
                 return
 
-            val = db[key]
-            d2 = val[0]   # 有効径（ISO規格値）
-
-            # ねじ山角度判定（半角）
-            is_55deg = ("テーパー" in ttype or "NPT" in ttype or
-                        "管用平行" in ttype or "ウィット" in ttype)
-            alpha = math.radians(27.5 if is_55deg else 30.0)
-
-            # ノーズ中心X座標の算出（ノーズRを考慮して加工後有効径がISO値と一致する位置）
-            # 導出：フランク直線がノーズ円弧に接する接点が有効径ピッチ円上に位置する条件
-            #   外ねじ: X_prog = d2 - P/(2·tan α) + 2R/sin α
-            #   内ねじ: X_prog = d2 + P/(2·tan α) - 2R/sin α
-            r_corr = pitch / (2 * math.tan(alpha)) - 2 * nose_r / math.sin(alpha)
-            if is_ext:
-                x_prog = round(d2 - r_corr, 4)      # ノーズ中心径（外ねじ）
-                ref_depth = round((diam - x_prog) / 2, 4)
-            else:
-                x_prog = round(d2 + r_corr, 4)      # ノーズ中心径（内ねじ）
-                ref_depth = round((x_prog - diam) / 2, 4)
-
-            if ref_depth <= 0:
-                messagebox.showerror("エラー", f"計算された切り込み深さが0以下です。\n"
-                                     f"有効径d2={d2:.3f}、入力径={diam:.3f}、X_prog={x_prog:.3f}")
-                return
-
-            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, depth_override=ref_depth)
+            d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
+            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic)
 
             params = {
                 "thread_name": f"{size_nm}  P={pitch:.4f}mm",
@@ -695,8 +736,6 @@ class ThreadCuttingApp(tk.Tk):
                 "is_external": is_ext,
                 "is_taper":    ttype in TAPER_TYPES,
                 "d_nominal":   diam,
-                "d2":          d2,
-                "x_prog":      x_prog,   # ノーズ中心X座標（G71/G76のX値）
                 "nose_r":      nose_r,
                 "cut_mode":    self.cut_mode_var.get(),
             }
@@ -707,14 +746,20 @@ class ThreadCuttingApp(tk.Tk):
                 program = generate_fanuc(params)
 
             # 計算情報表示
+            d2e = depth_info["d2_ext_avg"]
+            d2i = depth_info["d2_int_avg"]
             info_lines = [
-                f"ねじ山角度   : {depth_info['angle_deg']}°  (半角 {depth_info['angle_deg']//2}.{'5' if depth_info['angle_deg']==55 else '0'}°)",
-                f"有効径 d2    : {d2:.4f} mm  (ISO規格値)",
-                f"ノーズ中心X  : {x_prog:.4f} mm  (G71/G76 X値)",
-                f"X切り込み深さ: {depth_info['total_depth']:.4f} mm  (半径値)",
-                f"パス数       : {len(depth_info['cuts'])}",
-                f"各パス切り込み: {[f'{c:.4f}' for c in depth_info['cuts']]}",
+                f"ねじ山角度        : {depth_info['angle_deg']}°",
+                f"基準有効径(d2基本) : {depth_info['d2_basic']:.4f} mm",
+                f"雄ねじ有効径(6g平均): {d2e:.4f} mm" if d2e else "",
+                f"雌ねじ有効径(6H平均): {d2i:.4f} mm" if d2i else "",
+                f"理論山高さ        : {depth_info['h_theory']:.4f} mm",
+                f"ノーズR補正       : {depth_info['nose_correction']:.4f} mm",
+                f"実切り込み深さ    : {depth_info['total_depth']:.4f} mm",
+                f"パス数            : {len(depth_info['cuts'])}",
+                f"各パス切り込み    : {[f'{c:.4f}' for c in depth_info['cuts']]}",
             ]
+            info_lines = [l for l in info_lines if l]  # 空行除去
             self._set_text(self.info_text, "\n".join(info_lines))
             self._set_text(self.prog_text, program)
 
