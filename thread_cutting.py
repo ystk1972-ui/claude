@@ -287,18 +287,17 @@ def generate_okuma(params: dict) -> str:
     is_taper   = t["is_taper"]
     d_nominal  = t["d_nominal"]
     d2         = t["d2"]                               # 有効径（ISO規格値）
+    x_prog     = t["x_prog"]                           # ノーズ中心X（加工後d2一致を保証）
     total_depth = depth_info["total_depth"]
     cuts       = depth_info["cuts"]
     angle      = depth_info["angle_deg"]
     cut_mode   = t.get("cut_mode", "M74")
 
-    # X アプローチ（外径基準）・X終点（有効径基準）
+    # X アプローチ（外径基準）・X終点（ノーズ中心X）
     if is_external:
         x_approach = round(d_nominal + 2.0, 3)
-        x_ref      = round(d2, 3)                     # 有効径
     else:
         x_approach = round(d_nominal - 2.0, 3)
-        x_ref      = round(d2, 3)                     # 有効径
 
     # G71 パラメータ（半径値）
     d1   = round(cuts[0], 4)                          # 初回切り込み
@@ -320,7 +319,7 @@ def generate_okuma(params: dict) -> str:
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
         f"( Cycle  : G71 長手ねじ切り複合サイクル / {cut_mode} )",
-        f"( X Ref  : 有効径基準  d2={d2:.4f} mm )",
+        f"( d2={d2:.4f}mm  X={x_prog:.4f}mm [ノーズR{t['nose_r']}考慮] )",
         "",
         "N10 G28 U0 W0",
         "N20 G50 S2000",
@@ -333,13 +332,13 @@ def generate_okuma(params: dict) -> str:
 
     if is_taper:
         lines.append(
-            f"N60 G71 X{x_ref:.3f} Z{z_end:.3f} "
+            f"N60 G71 X{x_prog:.3f} Z{z_end:.3f} "
             f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
             f"I{taper_i:.3f} Q{qmin:.4f} R{fin:.3f}"
         )
     else:
         lines.append(
-            f"N60 G71 X{x_ref:.3f} Z{z_end:.3f} "
+            f"N60 G71 X{x_prog:.3f} Z{z_end:.3f} "
             f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
             f"Q{qmin:.4f} R{fin:.3f}"
         )
@@ -366,6 +365,7 @@ def generate_fanuc(params: dict) -> str:
 
     d_nominal = t["d_nominal"]
     d2        = t["d2"]                  # 有効径（ISO規格値）
+    x_prog    = t["x_prog"]              # ノーズ中心X（加工後d2一致を保証）
     total_depth = depth_info["total_depth"]
     cuts = depth_info["cuts"]
 
@@ -375,8 +375,8 @@ def generate_fanuc(params: dict) -> str:
     min_cut_um   = max(50, int(min(cuts) * 1000))
     depth_um     = int(total_depth * 1000)
 
-    # X終点 = 有効径（d2）、アプローチは外径基準
-    x_end_dia  = round(d2, 3)
+    # X終点 = ノーズ中心X（ノーズRとねじ角度から逆算、加工後d2がISO値に一致）
+    x_end_dia  = round(x_prog, 3)
     if is_external:
         x_approach = round(d_nominal + 2.0, 3)
     else:
@@ -397,7 +397,7 @@ def generate_fanuc(params: dict) -> str:
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
-        f"( X Ref  : 有効径基準  d2={d2:.4f} mm )",
+        f"( d2={d2:.4f}mm  X={x_prog:.4f}mm [ノーズR{t['nose_r']}考慮] )",
         "",
         "O0001",
         "N10 G28 U0 W0",
@@ -662,14 +662,26 @@ class ThreadCuttingApp(tk.Tk):
             val = db[key]
             d2 = val[0]   # 有効径（ISO規格値）
 
-            # 有効径基準の切り込み深さ = 外径と有効径の半径差
+            # ねじ山角度判定（半角）
+            is_55deg = ("テーパー" in ttype or "NPT" in ttype or
+                        "管用平行" in ttype or "ウィット" in ttype)
+            alpha = math.radians(27.5 if is_55deg else 30.0)
+
+            # ノーズ中心X座標の算出（ノーズRを考慮して加工後有効径がISO値と一致する位置）
+            # 導出：フランク直線がノーズ円弧に接する接点が有効径ピッチ円上に位置する条件
+            #   外ねじ: X_prog = d2 - P/(2·tan α) + 2R/sin α
+            #   内ねじ: X_prog = d2 + P/(2·tan α) - 2R/sin α
+            r_corr = pitch / (2 * math.tan(alpha)) - 2 * nose_r / math.sin(alpha)
             if is_ext:
-                ref_depth = round((diam - d2) / 2, 4)
+                x_prog = round(d2 - r_corr, 4)      # ノーズ中心径（外ねじ）
+                ref_depth = round((diam - x_prog) / 2, 4)
             else:
-                ref_depth = round((d2 - diam) / 2, 4)
+                x_prog = round(d2 + r_corr, 4)      # ノーズ中心径（内ねじ）
+                ref_depth = round((x_prog - diam) / 2, 4)
 
             if ref_depth <= 0:
-                messagebox.showerror("エラー", f"有効径 ({d2:.3f} mm) と入力径 ({diam:.3f} mm) の関係が正しくありません。")
+                messagebox.showerror("エラー", f"計算された切り込み深さが0以下です。\n"
+                                     f"有効径d2={d2:.3f}、入力径={diam:.3f}、X_prog={x_prog:.3f}")
                 return
 
             depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, depth_override=ref_depth)
@@ -684,6 +696,7 @@ class ThreadCuttingApp(tk.Tk):
                 "is_taper":    ttype in TAPER_TYPES,
                 "d_nominal":   diam,
                 "d2":          d2,
+                "x_prog":      x_prog,   # ノーズ中心X座標（G71/G76のX値）
                 "nose_r":      nose_r,
                 "cut_mode":    self.cut_mode_var.get(),
             }
@@ -695,11 +708,10 @@ class ThreadCuttingApp(tk.Tk):
 
             # 計算情報表示
             info_lines = [
-                f"ねじ山角度   : {depth_info['angle_deg']}°",
-                f"理論山高さ   : {depth_info['h_theory']:.4f} mm",
-                f"有効径 (d2)  : {d2:.4f} mm  ← X基準",
-                f"ノーズR補正  : {depth_info['nose_correction']:.4f} mm",
-                f"切り込み深さ : {depth_info['total_depth']:.4f} mm  (有効径基準)",
+                f"ねじ山角度   : {depth_info['angle_deg']}°  (半角 {depth_info['angle_deg']//2}.{'5' if depth_info['angle_deg']==55 else '0'}°)",
+                f"有効径 d2    : {d2:.4f} mm  (ISO規格値)",
+                f"ノーズ中心X  : {x_prog:.4f} mm  (G71/G76 X値)",
+                f"X切り込み深さ: {depth_info['total_depth']:.4f} mm  (半径値)",
                 f"パス数       : {len(depth_info['cuts'])}",
                 f"各パス切り込み: {[f'{c:.4f}' for c in depth_info['cuts']]}",
             ]
