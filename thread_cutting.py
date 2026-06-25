@@ -405,7 +405,7 @@ def generate_okuma(params: dict) -> str:
         f"( Nose R : {t['nose_r']} mm )",
         f"( Cycle  : G71 長手ねじ切り複合サイクル / {cut_mode} )",
         "",
-        "N10 G28 U0 W0",
+        "N10 G00 X500.0 Z500.0",
         "N20 G50 S2000",
         f"N30 G97 S500 M03 {cut_mode}",
         "N40 G00 T0101",
@@ -429,7 +429,7 @@ def generate_okuma(params: dict) -> str:
 
     lines += [
         "",
-        "N70 G28 U0 W0",
+        "N70 G00 X500.0 Z500.0",
         "N80 M05",
         "N90 M30",
         "%",
