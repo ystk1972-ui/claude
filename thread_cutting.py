@@ -229,8 +229,8 @@ _PD_TOL_6HG = {
     0.90: (-0.020, 0.063, 0.095),
     1.00: (-0.026, 0.071, 0.106),
     1.25: (-0.026, 0.080, 0.118),
-    1.50: (-0.026, 0.085, 0.125),
-    1.75: (-0.026, 0.090, 0.132),
+    1.50: (-0.032, 0.085, 0.125),
+    1.75: (-0.032, 0.090, 0.132),
     2.00: (-0.032, 0.095, 0.140),
     2.50: (-0.032, 0.106, 0.160),
     3.00: (-0.038, 0.118, 0.170),
@@ -243,14 +243,15 @@ _PD_TOL_6HG = {
 }
 
 
-# 外ねじ 山径公差 (6g, Td) — pitch: Td (mm)  ISO 965-1 Table 4
+# 外ねじ 山径公差 (6g, Td) — pitch: Td (mm)  JIS B 0209-2 / ISO 965-1
+# Td6 = 180 × P^(2/3) μm
 _MAJOR_TOL_6G = {
-    0.20: 0.032, 0.25: 0.042, 0.30: 0.048, 0.35: 0.053,
-    0.40: 0.060, 0.45: 0.063, 0.50: 0.071, 0.60: 0.080,
-    0.70: 0.090, 0.75: 0.090, 0.80: 0.095, 0.90: 0.100,
-    1.00: 0.112, 1.25: 0.132, 1.50: 0.150, 1.75: 0.160,
-    2.00: 0.180, 2.50: 0.212, 3.00: 0.236, 3.50: 0.265,
-    4.00: 0.280, 4.50: 0.315, 5.00: 0.355, 5.50: 0.375, 6.00: 0.400,
+    0.20: 0.062, 0.25: 0.071, 0.30: 0.081, 0.35: 0.089,
+    0.40: 0.098, 0.45: 0.106, 0.50: 0.113, 0.60: 0.128,
+    0.70: 0.142, 0.75: 0.149, 0.80: 0.155, 0.90: 0.168,
+    1.00: 0.180, 1.25: 0.208, 1.50: 0.236, 1.75: 0.262,
+    2.00: 0.286, 2.50: 0.332, 3.00: 0.374, 3.50: 0.415,
+    4.00: 0.454, 4.50: 0.491, 5.00: 0.526, 5.50: 0.561, 6.00: 0.594,
 }
 
 # 内ねじ 谷径公差 (6H, TD1) — pitch: TD1 (mm)  ISO 965-1 Table 6
@@ -411,17 +412,17 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
 def generate_okuma(params: dict) -> str:
     """オークマ OSP 形式 G71 長手ねじ切り複合サイクルプログラムを生成する。
 
-    G71 フォーマット（OSP）:
-        G71 X(xe) Z(ze) D(d1) F(p) A(ang) K(depth) [I(taper)] Q(qmin) R(fin)
-          X   : ねじ谷径（径指定・直径値） ※雌ねじは山径
+    G71 フォーマット（OSP LB3000EX2）:
+        G71 X(xe) Z(ze) [I(taper)] B(ang) D(d1) U(fin) H(depth) F(p) M(mode)
+          X   : ねじ谷径（直径値 mm） ※雌ねじは山径
           Z   : 切り終わりZ座標
-          D   : 初回切り込み量（半径値 mm）
-          F   : ピッチ（リード）mm
-          A   : ねじ山角度（60° or 55°）
-          K   : 総切り込み深さ（半径値 mm）
           I   : テーパー量（半径差 mm、テーパーねじのみ）
-          Q   : 最小切り込み量（半径値 mm）
-          R   : 仕上げしろ（半径値 mm）
+          B   : 切り込み角度（60.000° or 55.000°）
+          D   : 初回切り込み量（直径値 mm）
+          U   : 仕上代（直径値 mm）
+          H   : ねじ外径と谷径の差（直径値 mm）
+          F   : ピッチ（リード mm）
+          M   : 切削モード（M32/M33/M34）
     """
     t = params
     depth_info = t["depth_info"]
@@ -434,7 +435,7 @@ def generate_okuma(params: dict) -> str:
     total_depth = depth_info["total_depth"]
     cuts       = depth_info["cuts"]
     angle      = depth_info["angle_deg"]
-    cut_mode   = t.get("cut_mode", "M74")
+    cut_mode   = t.get("cut_mode", "M33")
 
     # X アプローチ・ねじ谷径（直径値）
     # x_target が計算済みであればそれを使用、なければ total_depth から算出
@@ -446,11 +447,10 @@ def generate_okuma(params: dict) -> str:
         x_approach = round(d_nominal - 2.0, 3)
         x_root = round(x_target, 3) if x_target is not None else round(d_nominal + total_depth * 2, 3)
 
-    # G71 パラメータ（半径値）
-    d1   = round(cuts[0], 4)                          # 初回切り込み
-    qmin = round(max(0.02, min(cuts) * 0.8), 4)       # 最小切り込み
-    fin  = 0.05                                        # 仕上げしろ
-    k    = round(total_depth, 4)                       # 総深さ
+    # G71 パラメータ（直径値）
+    d1_dia = round(cuts[0] * 2, 4)          # 初回切り込み（直径値）
+    u_dia  = round(0.05 * 2, 3)             # 仕上代（直径値）
+    h_dia  = round(total_depth * 2, 4)      # 外径と谷径の差（直径値）
 
     # テーパー量 I：ねじ長さ ÷ 32（1/16テーパーの半径差）
     taper_i = round(abs(z_end - z_start) / 32.0, 3) if is_taper else None
@@ -469,7 +469,7 @@ def generate_okuma(params: dict) -> str:
         "",
         "N10 G00 X500.0 Z500.0",
         "N20 G50 S2000",
-        f"N30 G97 S500 M03 {cut_mode}",
+        "N30 G97 S500 M03",
         "N40 G00 T0101",
         f"N50 G00 X{x_approach:.3f} Z{z_approach:.3f}",
         "",
@@ -478,22 +478,29 @@ def generate_okuma(params: dict) -> str:
 
     if is_taper:
         lines.append(
-            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
-            f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
-            f"I{taper_i:.3f} Q{qmin:.4f} R{fin:.3f}"
+            f"N60 G71 X{x_root:.3f} Z{z_end:.3f} I{taper_i:.3f} "
+            f"B{angle:.3f} D{d1_dia:.3f} U{u_dia:.3f} H{h_dia:.3f} F{pitch:.3f} {cut_mode}"
         )
     else:
         lines.append(
             f"N60 G71 X{x_root:.3f} Z{z_end:.3f} "
-            f"D{d1:.4f} F{pitch:.4f} A{angle} K{k:.4f} "
-            f"Q{qmin:.4f} R{fin:.3f}"
+            f"B{angle:.3f} D{d1_dia:.3f} U{u_dia:.3f} H{h_dia:.3f} F{pitch:.3f} {cut_mode}"
         )
 
+    g33_line = (
+        f"N80 G33 X{x_root:.3f} Z{z_end:.3f} I{taper_i:.3f} F{pitch:.3f}"
+        if is_taper else
+        f"N80 G33 X{x_root:.3f} Z{z_end:.3f} F{pitch:.3f}"
+    )
     lines += [
+        "( 仕上パス（ゼロカット） )",
+        f"N70 G00 X{x_approach:.3f} Z{z_approach:.3f}",
+        g33_line,
+        f"N90 G00 X{x_approach:.3f}",
         "",
-        "N70 G00 X500.0 Z500.0",
-        "N80 M05",
-        "N90 M30",
+        "N100 G00 X500.0 Z500.0",
+        "N110 M05",
+        "N120 M30",
         "%",
     ]
     return "\n".join(lines)
@@ -557,20 +564,32 @@ def generate_fanuc(params: dict) -> str:
 
     if is_taper:
         lines.append(
-            f"N70 G76 X{x_end_dia:.3f} Z{z_end:.3f} I{taper_i:.3f} "
-            f"K{depth_um} D{first_cut_um} F{pitch:.4f} A{angle}"
+            f"N70 G76 X{x_end_dia:.3f} Z{z_end:.3f} R{taper_i:.3f} "
+            f"P{depth_um} Q{first_cut_um} F{pitch:.4f}"
         )
     else:
         lines.append(
             f"N70 G76 X{x_end_dia:.3f} Z{z_end:.3f} "
-            f"K{depth_um} D{first_cut_um} F{pitch:.4f} A{angle}"
+            f"P{depth_um} Q{first_cut_um} F{pitch:.4f}"
         )
 
+    z_approach = round(z_start + pitch * 3, 3)
+    # フランク送りによる仕上パスの助走Z補正
+    # G76各パスはX切込みに対してZ方向もシフトするため、
+    # 仕上パスの助走Zをそのシフト量だけ切削方向にずらす
+    z_shift = total_depth * math.tan(math.radians(angle / 2))
+    direction = math.copysign(1, z_end - z_start)
+    z_approach_finish = round(z_approach + direction * z_shift, 3)
     lines += [
         "",
-        "N80 G28 U0 W0",
-        "N90 M05",
-        "N100 M30",
+        "( 仕上パス（ゼロカット） )",
+        f"N80 G00 X{x_end_dia:.3f} Z{z_approach_finish:.3f}",
+        f"N90 G32 X{x_end_dia:.3f} Z{z_end:.3f} F{pitch:.3f}",
+        f"N100 G00 X{x_approach:.3f}",
+        "",
+        "N110 G28 U0 W0",
+        "N120 M05",
+        "N130 M30",
         "%",
     ]
     return "\n".join(lines)
@@ -625,7 +644,7 @@ class ThreadCuttingApp(tk.Tk):
         self.cb_type.bind("<<ComboboxSelected>>", lambda e: self._on_type_change())
 
         # ---- 2. 雄/雌 ----
-        grp2 = ttk.LabelFrame(left, text="2. ねじの性別", padding=8)
+        grp2 = ttk.LabelFrame(left, text="2. 雄ねじ・雌ねじ", padding=8)
         grp2.pack(fill="x", pady=(0, 8))
 
         self.gender_var = tk.StringVar(value="外")
@@ -651,11 +670,11 @@ class ThreadCuttingApp(tk.Tk):
         # 切削モード（オークマ選択時のみ表示）
         self.mode_frame = ttk.Frame(grp3)
         ttk.Label(self.mode_frame, text="切削モード:").pack(anchor="w")
-        self.cut_mode_var = tk.StringVar(value="M74")
+        self.cut_mode_var = tk.StringVar(value="M33")
         modes = [
-            ("M73  両刃切削（ラジアル送り）",   "M73"),
-            ("M74  片刃切削（フランク送り）",   "M74"),
-            ("M75  交互片刃切削",              "M75"),
+            ("M32  片刃切削モード",   "M32"),
+            ("M33  千鳥切削モード",   "M33"),
+            ("M34  逆片刃切削モード", "M34"),
         ]
         for label, val in modes:
             ttk.Radiobutton(self.mode_frame, text=label,
