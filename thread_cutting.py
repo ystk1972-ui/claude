@@ -303,21 +303,35 @@ def _d_nominal_from_key(size_name: str, val: tuple):
     return None
 
 
-def _d2_avg(d2_basic: float, pitch: float, is_external: bool) -> float:
+def _td2_6g(d: float, p: float) -> float:
+    """外ねじ有効径公差 Td2 (6g) — JIS B 0209-2: 50×d^(1/3)×P^(1/2) μm"""
+    return round(50 * d ** (1 / 3) * p ** 0.5) / 1000
+
+def _TD2_6H(d: float, p: float) -> float:
+    """内ねじ有効径公差 TD2 (6H) — JIS B 0209-2: 63×d^(1/3)×P^(1/2) μm"""
+    return round(63 * d ** (1 / 3) * p ** 0.5) / 1000
+
+def _d2_avg(d2_basic: float, pitch: float, is_external: bool,
+            d_nominal: float = None) -> float:
     """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。
 
     外ねじ 6g: d2_max = d2_basic + es
-               d2_min = d2_basic + es - Td2
+               d2_min = d2_max - Td2
     内ねじ 6H: D2_min = d2_basic  (EI=0)
                D2_max = d2_basic + TD2
+    d_nominal が与えられた場合は公称径を考慮した式で Td2/TD2 を算出する。
     """
     p = min(_PD_TOL_6HG.keys(), key=lambda x: abs(x - pitch))
-    es, Td2, TD2 = _PD_TOL_6HG[p]
+    es = _PD_TOL_6HG[p][0]
+    if d_nominal is not None:
+        Td2 = _td2_6g(d_nominal, pitch) if is_external else _TD2_6H(d_nominal, pitch)
+    else:
+        Td2 = _PD_TOL_6HG[p][1] if is_external else _PD_TOL_6HG[p][2]
     if is_external:
         d2_max = d2_basic + es
-        d2_min = d2_basic + es - Td2
+        d2_min = d2_max - Td2
     else:
-        d2_max = d2_basic + TD2
+        d2_max = d2_basic + Td2
         d2_min = d2_basic
     return round((d2_max + d2_min) / 2, 4)
 
@@ -347,8 +361,8 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
     tan_th = math.tan(math.radians(theta_half))
     sin_th = math.sin(math.radians(theta_half))
 
-    d2_ext_avg = _d2_avg(d2_basic, pitch, True)  if d2_basic is not None else None
-    d2_int_avg = _d2_avg(d2_basic, pitch, False) if d2_basic is not None else None
+    d2_ext_avg = _d2_avg(d2_basic, pitch, True,  d_nominal) if d2_basic is not None else None
+    d2_int_avg = _d2_avg(d2_basic, pitch, False, d_nominal) if d2_basic is not None else None
     d2_avg = (d2_ext_avg if is_external else d2_int_avg)
 
     if d2_avg is not None and d_nominal is not None:
