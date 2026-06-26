@@ -279,12 +279,12 @@ def _d_major_avg(d_basic: float, pitch: float) -> float:
 
 
 def _D1_minor_avg(D1_basic: float, pitch: float) -> float:
-    """内ねじ 谷径（内径）の公差域中間値 (6H)。
+    """内ねじ 谷径ボーリング目標径 = D1_max (6H上限)。
     D1_min = D1_basic (EI=0),  D1_max = D1_basic + TD1
     """
     p   = min(_MINOR_TOL_6H.keys(), key=lambda x: abs(x - pitch))
     TD1 = _MINOR_TOL_6H[p]
-    return round(D1_basic + TD1 / 2, 4)
+    return round(D1_basic + TD1, 4)
 
 
 def _d_nominal_from_key(size_name: str, val: tuple):
