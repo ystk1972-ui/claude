@@ -243,15 +243,15 @@ _PD_TOL_6HG = {
 }
 
 
-# 外ねじ 山径公差 (6g, Td) — pitch: Td (mm)  JIS B 0209-2 / ISO 965-1
-# Td6 = 180 × P^(2/3) μm
+# 外ねじ 山径公差 (6g, Td) — JIS B0209-2 表2 の d_max-d_min 実測値（ピッチのみ依存）
+# P=0.20/0.75/0.90 は表なしのため ISO 965-1 近似値を使用
 _MAJOR_TOL_6G = {
-    0.20: 0.062, 0.25: 0.071, 0.30: 0.081, 0.35: 0.089,
-    0.40: 0.098, 0.45: 0.106, 0.50: 0.113, 0.60: 0.128,
-    0.70: 0.142, 0.75: 0.149, 0.80: 0.155, 0.90: 0.168,
-    1.00: 0.180, 1.25: 0.208, 1.50: 0.236, 1.75: 0.262,
-    2.00: 0.286, 2.50: 0.332, 3.00: 0.374, 3.50: 0.415,
-    4.00: 0.454, 4.50: 0.491, 5.00: 0.526, 5.50: 0.561, 6.00: 0.594,
+    0.20: 0.062, 0.25: 0.067, 0.30: 0.075, 0.35: 0.085,
+    0.40: 0.095, 0.45: 0.100, 0.50: 0.106, 0.60: 0.125,
+    0.70: 0.140, 0.75: 0.149, 0.80: 0.150, 0.90: 0.168,
+    1.00: 0.180, 1.25: 0.212, 1.50: 0.236, 1.75: 0.265,
+    2.00: 0.280, 2.50: 0.335, 3.00: 0.375, 3.50: 0.425,
+    4.00: 0.475, 4.50: 0.500, 5.00: 0.530, 5.50: 0.560, 6.00: 0.600,
 }
 
 # 内ねじ 谷径公差 (6H, TD1) — pitch: TD1 (mm)  ISO 965-1 Table 6
@@ -266,10 +266,79 @@ _MINOR_TOL_6H = {
 }
 
 
-def _d_major_avg(d_basic: float, pitch: float) -> float:
-    """外ねじ 山径（外径）の公差域中間値 (6g)。
-    d_max = d_basic + es,  d_min = d_max - Td
-    """
+# JIS B0209-2 直接参照テーブル — (スレッド名, ピッチ) → (d2_avg_6g, d_avg_6g)
+# 雄ねじ 6g 公差域中間値 = (d2_max+d2_min)/2, (d_max+d_min)/2
+_METRIC_EXT_AVG_6G: dict = {
+    # ── メートル並目 (JIS B0209-2 表2) ──
+    ("M1",   0.25): (0.8115, 0.9665), ("M1.2", 0.25): (1.0115, 1.1665),
+    ("M1.4", 0.30): (1.177,  1.3625), ("M1.6", 0.35): (1.3225, 1.5385),
+    ("M2",   0.40): (1.6875, 1.9335), ("M2.5", 0.45): (2.1525, 2.430),
+    ("M3",   0.50): (2.6175, 2.927),  ("M3.5", 0.60): (3.0465, 3.4165),
+    ("M4",   0.70): (3.478,  3.908),  ("M5",   0.80): (4.4085, 4.901),
+    ("M6",   1.00): (5.268,  5.884),  ("M7",   1.00): (6.268,  6.884),
+    ("M8",   1.25): (7.101,  7.866),  ("M10",  1.50): (8.928,  9.850),
+    ("M12",  1.75): (10.754, 11.8335),("M14",  2.00): (12.583, 13.822),
+    ("M16",  2.00): (14.583, 15.822), ("M18",  2.50): (16.249, 17.7905),
+    ("M20",  2.50): (18.249, 19.7905),("M22",  2.50): (20.249, 21.7905),
+    ("M24",  3.00): (21.903, 23.7645),("M27",  3.00): (24.903, 26.7645),
+    ("M30",  3.50): (27.568, 29.7345),("M33",  3.50): (30.568, 32.7345),
+    ("M36",  4.00): (33.230, 35.7025),("M39",  4.00): (36.230, 38.7025),
+    ("M42",  4.50): (38.896, 41.687), ("M45",  4.50): (41.896, 44.687),
+    ("M48",  5.00): (44.556, 47.664), ("M52",  5.00): (48.556, 51.664),
+    ("M56",  5.50): (52.2205,55.645), ("M60",  5.50): (56.2205,59.645),
+    ("M64",  6.00): (59.883, 63.620),
+    # ── メートル細目 (JIS B0209-2 表4) ──
+    ("M8x1",    1.00): (7.268,  7.884),  ("M10x1",   1.00): (9.268,  9.884),
+    ("M10x1.25",1.25): (9.101,  9.866),  ("M12x1",   1.00): (11.268, 11.884),
+    ("M12x1.25",1.25): (11.094, 11.866), ("M12x1.5", 1.50): (10.924, 11.850),
+    ("M14x1.5", 1.50): (12.924, 13.850), ("M16x1.5", 1.50): (14.924, 15.850),
+    ("M18x1.5", 1.50): (16.924, 17.850), ("M20x1.5", 1.50): (18.924, 19.850),
+    ("M22x1.5", 1.50): (20.924, 21.850), ("M24x2",   2.00): (22.578, 23.822),
+    ("M27x2",   2.00): (25.578, 26.822), ("M30x2",   2.00): (28.578, 29.822),
+    ("M33x2",   2.00): (31.578, 32.822), ("M36x3",   3.00): (33.903, 35.7645),
+    ("M39x3",   3.00): (36.903, 38.7645),
+}
+
+# JIS B0209-2 直接参照テーブル — (スレッド名, ピッチ) → (D2_avg_6H, D1_avg_6H)
+# 雌ねじ 6H 公差域中間値 = (D2_max+D2_min)/2, (D1_max+D1_min)/2
+_METRIC_INT_AVG_6H: dict = {
+    # ── メートル並目 (JIS B0209-2 表1) ──
+    ("M1",   0.25): (0.866,   0.757),  ("M1.2", 0.25): (1.066,   0.957),
+    ("M1.4", 0.30): (1.235,   1.1085), ("M1.6", 0.35): (1.4155,  1.271),
+    ("M2",   0.40): (1.785,   1.623),  ("M2.5", 0.45): (2.2555,  2.0755),
+    ("M3",   0.50): (2.725,   2.529),  ("M3.5", 0.60): (3.166,   2.930),
+    ("M4",   0.70): (3.604,   3.332),  ("M5",   0.80): (4.5425,  4.234),
+    ("M6",   1.00): (5.425,   5.035),  ("M7",   1.00): (6.425,   6.035),
+    ("M8",   1.25): (7.268,   6.7795), ("M10",  1.50): (9.116,   8.526),
+    ("M12",  1.75): (10.963,  10.2735),("M14",  2.00): (12.807,  12.0225),
+    ("M16",  2.00): (14.807,  14.0225),("M18",  2.50): (16.488,  15.519),
+    ("M20",  2.50): (18.488,  17.519), ("M22",  2.50): (20.488,  19.519),
+    ("M24",  3.00): (22.1835, 21.002), ("M27",  3.00): (25.1785, 24.002),
+    ("M30",  3.50): (27.867,  26.491), ("M33",  3.50): (30.867,  29.491),
+    ("M36",  4.00): (33.552,  31.970), ("M39",  4.00): (36.552,  34.970),
+    ("M42",  4.50): (39.2345, 37.464), ("M45",  4.50): (42.2345, 40.464),
+    ("M48",  5.00): (44.9195, 42.942), ("M52",  5.00): (48.9195, 46.942),
+    ("M56",  5.50): (52.6055, 50.421), ("M60",  5.50): (56.6055, 54.421),
+    ("M64",  6.00): (60.2905, 57.905),
+    # ── メートル細目 (JIS B0209-2 表3) ──
+    ("M8x1",    1.00): (7.425,  7.035),  ("M10x1",   1.00): (9.425,  9.035),
+    ("M10x1.25",1.25): (9.268,  8.7795), ("M12x1",   1.00): (11.425, 11.035),
+    ("M12x1.25",1.25): (11.278, 10.7795),("M12x1.5", 1.50): (11.121, 10.526),
+    ("M14x1.5", 1.50): (13.121, 12.526), ("M16x1.5", 1.50): (15.121, 14.526),
+    ("M18x1.5", 1.50): (17.121, 16.526), ("M20x1.5", 1.50): (19.121, 18.526),
+    ("M22x1.5", 1.50): (21.121, 20.526), ("M24x2",   2.00): (22.813, 22.0225),
+    ("M27x2",   2.00): (25.813, 25.0225),("M30x2",   2.00): (28.813, 28.0225),
+    ("M33x2",   2.00): (31.813, 31.0225),("M36x3",   3.00): (34.1835,33.002),
+    ("M39x3",   3.00): (37.1835,36.002),
+}
+
+
+def _d_major_avg(d_basic: float, pitch: float, thread_name: str = None) -> float:
+    """外ねじ 山径（外径）の公差域中間値 (6g)。"""
+    if thread_name is not None:
+        entry = _METRIC_EXT_AVG_6G.get((thread_name, pitch))
+        if entry is not None:
+            return entry[1]
     p  = min(_PD_TOL_6HG.keys(),   key=lambda x: abs(x - pitch))
     p2 = min(_MAJOR_TOL_6G.keys(), key=lambda x: abs(x - pitch))
     es = _PD_TOL_6HG[p][0]
@@ -279,10 +348,12 @@ def _d_major_avg(d_basic: float, pitch: float) -> float:
     return round((d_max + d_min) / 2, 4)
 
 
-def _D1_minor_avg(D1_basic: float, pitch: float) -> float:
-    """内ねじ 谷径ボーリング目標径 = D1_max (6H上限)。
-    D1_min = D1_basic (EI=0),  D1_max = D1_basic + TD1
-    """
+def _D1_minor_avg(D1_basic: float, pitch: float, thread_name: str = None) -> float:
+    """内ねじ 谷径ボーリング目標径（D1 公差域中間値, 6H）。"""
+    if thread_name is not None:
+        entry = _METRIC_INT_AVG_6H.get((thread_name, pitch))
+        if entry is not None:
+            return entry[1]
     p   = min(_MINOR_TOL_6H.keys(), key=lambda x: abs(x - pitch))
     TD1 = _MINOR_TOL_6H[p]
     return round(D1_basic + TD1, 4)
@@ -313,15 +384,17 @@ def _TD2_6H(d: float, p: float) -> float:
     return round(63 * d ** (1 / 3) * p ** 0.5) / 1000
 
 def _d2_avg(d2_basic: float, pitch: float, is_external: bool,
-            d_nominal: float = None) -> float:
-    """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。
-
-    外ねじ 6g: d2_max = d2_basic + es
-               d2_min = d2_max - Td2
-    内ねじ 6H: D2_min = d2_basic  (EI=0)
-               D2_max = d2_basic + TD2
-    d_nominal が与えられた場合は公称径を考慮した式で Td2/TD2 を算出する。
-    """
+            d_nominal: float = None, thread_name: str = None) -> float:
+    """有効径の公差域中間値を返す（外ねじ 6g / 内ねじ 6H）。"""
+    if thread_name is not None:
+        if is_external:
+            entry = _METRIC_EXT_AVG_6G.get((thread_name, pitch))
+            if entry is not None:
+                return entry[0]
+        else:
+            entry = _METRIC_INT_AVG_6H.get((thread_name, pitch))
+            if entry is not None:
+                return entry[0]
     p = min(_PD_TOL_6HG.keys(), key=lambda x: abs(x - pitch))
     es = _PD_TOL_6HG[p][0]
     if d_nominal is not None:
@@ -343,7 +416,7 @@ def _d2_avg(d2_basic: float, pitch: float, is_external: bool,
 
 def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
                       is_external: bool, d2_basic: float = None,
-                      d_nominal: float = None) -> dict:
+                      d_nominal: float = None, thread_name: str = None) -> dict:
     """
     ねじ切りX目標径と切り込み深さを計算する。
 
@@ -362,8 +435,8 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
     tan_th = math.tan(math.radians(theta_half))
     sin_th = math.sin(math.radians(theta_half))
 
-    d2_ext_avg = _d2_avg(d2_basic, pitch, True,  d_nominal) if d2_basic is not None else None
-    d2_int_avg = _d2_avg(d2_basic, pitch, False, d_nominal) if d2_basic is not None else None
+    d2_ext_avg = _d2_avg(d2_basic, pitch, True,  d_nominal, thread_name) if d2_basic is not None else None
+    d2_int_avg = _d2_avg(d2_basic, pitch, False, d_nominal, thread_name) if d2_basic is not None else None
     d2_avg = (d2_ext_avg if is_external else d2_int_avg)
 
     if d2_avg is not None and d_nominal is not None:
@@ -823,7 +896,7 @@ class ThreadCuttingApp(tk.Tk):
                 # 雄ねじ: 山径（外径）公差域中間値
                 d_basic = _d_nominal_from_key(size_name, val) or val[0]
                 try:
-                    self.diam_var.set(f"{_d_major_avg(d_basic, pitch):.3f}")
+                    self.diam_var.set(f"{_d_major_avg(d_basic, pitch, size_name):.3f}")
                 except Exception:
                     self.diam_var.set(f"{d_basic:.3f}")
             else:
@@ -839,7 +912,7 @@ class ThreadCuttingApp(tk.Tk):
                     d_nomi = _d_nominal_from_key(size_name, val)
                     D1_basic = (d_nomi - 1.0825 * pitch) if d_nomi is not None else val[1]
                 try:
-                    self.diam_var.set(f"{_D1_minor_avg(D1_basic, pitch):.3f}")
+                    self.diam_var.set(f"{_D1_minor_avg(D1_basic, pitch, size_name):.3f}")
                 except Exception:
                     self.diam_var.set(f"{D1_basic:.3f}")
             break
@@ -868,7 +941,7 @@ class ThreadCuttingApp(tk.Tk):
                 return
 
             d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
-            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam)
+            depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam, size_nm)
 
             params = {
                 "thread_name": f"{size_nm}  P={pitch:.4f}mm",
