@@ -549,7 +549,7 @@ def generate_okuma(params: dict) -> str:
     lines = [
         f"( *** NC Thread Cutting Program ***)",
         f"( Thread : {t['thread_name']} )",
-        f"( Type   : {'雄ねじ' if is_external else '雌ねじ'} )",
+        f"( Type   : {'EXTERNAL THREAD' if is_external else 'INTERNAL THREAD'} )",
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
@@ -634,7 +634,7 @@ def generate_fanuc(params: dict) -> str:
     lines = [
         f"( *** NC Thread Cutting Program ***)",
         f"( Thread : {t['thread_name']} )",
-        f"( Type   : {'雄ねじ' if is_external else '雌ねじ'} )",
+        f"( Type   : {'EXTERNAL THREAD' if is_external else 'INTERNAL THREAD'} )",
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
