@@ -529,9 +529,14 @@ def _okuma_cuts(actual_depth: float, pitch: float) -> list:
         cumulative = round(cumulative + c, 4)
 
     # 漸減パス：D/2 → D/4 → D/8 → D/8
+    # 残りが直径 0.01mm（半径 0.005mm）以下の場合は直前パスに吸収してクリップしない
     for frac in (0.5, 0.25, 0.125, 0.125):
         remaining = round(rough - cumulative, 4)
         if remaining <= 1e-9:
+            break
+        if remaining <= 0.005 and cuts:
+            cuts[-1] = round(cuts[-1] + remaining, 4)
+            cumulative = round(cumulative + remaining, 4)
             break
         c = round(min(D * frac, remaining), 4)
         cuts.append(c)
