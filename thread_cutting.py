@@ -497,24 +497,27 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
     }
 
 
-_OKUMA_U = 0.05  # 仕上代（半径値 mm）— generate_okuma の u_dia と一致させること
+_OKUMA_U = 0.1  # 仕上代（直径値 mm）— G71 U パラメータ = この値
 
 def _okuma_cuts(actual_depth: float, pitch: float) -> list:
     """
     Okuma G71 の実切り込みシーケンス（半径値）を生成する。
+    D・U はすべて直径値で定義し、内部計算は /2 で半径に変換する。
 
-    アルゴリズム:
-      1. D ずつ定量切り込み（cumulative が rough-D 以上になるまで。その点を含む）
+    アルゴリズム（直径値ベース）:
+      1. D ずつ定量切り込み（累積 >= 荒切り目標 H-U-D になるまで。その点を含む）
       2. D/2 → D/4 → D/8 → D/8（合計 D、粗切り目標 H-U に到達。残り量にクリップ）
       3. 仕上パス U
     """
-    U = _OKUMA_U
+    U = _OKUMA_U / 2                        # 半径値に変換
     rough = actual_depth - U
     if rough <= 1e-9:
         return [round(actual_depth, 4)]
 
-    D = round(min(0.3 * pitch, rough * 0.4), 4)
-    D = max(D, 0.01)
+    rough_dia = rough * 2                   # 直径値
+    D_dia = round(min(0.3 * pitch, rough_dia * 0.4), 4)   # 直径値で算出
+    D_dia = max(D_dia, 0.02)
+    D = D_dia / 2                           # 半径値に変換（内部計算用）
 
     cuts = []
     cumulative = 0.0
@@ -582,7 +585,7 @@ def generate_okuma(params: dict) -> str:
 
     # G71 パラメータ（直径値）
     d1_dia = round(cuts[0] * 2, 4)          # 初回切り込み（直径値）
-    u_dia  = round(0.05 * 2, 3)             # 仕上代（直径値）
+    u_dia  = _OKUMA_U                       # 仕上代（直径値）
     h_dia  = round(total_depth * 2, 4)      # 外径と谷径の差（直径値）
 
     # テーパー量 I：ねじ長さ ÷ 32（1/16テーパーの半径差）
