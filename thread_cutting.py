@@ -497,6 +497,51 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
     }
 
 
+_OKUMA_U = 0.05  # 仕上代（半径値 mm）— generate_okuma の u_dia と一致させること
+
+def _okuma_cuts(actual_depth: float, pitch: float) -> list:
+    """
+    Okuma G71 の実切り込みシーケンス（半径値）を生成する。
+
+    アルゴリズム:
+      1. D ずつ定量切り込み（粗切り目標 H-U の D 手前まで）
+      2. D/2 → D/4 → D/8 → D/8（合計 D、粗切り目標に到達）
+      3. 仕上パス U
+    """
+    U = _OKUMA_U
+    rough = actual_depth - U
+    if rough <= 1e-9:
+        return [round(actual_depth, 4)]
+
+    D = round(min(0.3 * pitch, rough * 0.4), 4)
+    D = max(D, 0.01)
+
+    cuts = []
+    cumulative = 0.0
+
+    # 定量 D パス：(rough - D) に達するまで繰り返す
+    threshold = rough - D
+    while cumulative + D <= threshold + 1e-9:
+        cuts.append(D)
+        cumulative = round(cumulative + D, 4)
+
+    # 漸減パス：D/2 → D/4 → D/8 → D/8 で残り rough - cumulative を消化
+    for frac in (0.5, 0.25, 0.125, 0.125):
+        remaining = round(rough - cumulative, 4)
+        if remaining <= 1e-9:
+            break
+        c = round(min(D * frac, remaining), 4)
+        cuts.append(c)
+        cumulative = round(cumulative + c, 4)
+
+    # 仕上パス
+    finish = round(actual_depth - cumulative, 4)
+    if finish > 1e-9:
+        cuts.append(finish)
+
+    return cuts
+
+
 def generate_okuma(params: dict) -> str:
     """オークマ OSP 形式 G71 長手ねじ切り複合サイクルプログラムを生成する。
 
@@ -953,6 +998,10 @@ class ThreadCuttingApp(tk.Tk):
 
             d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
             depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam, size_nm)
+
+            # オークマ G71 固有の切り込みシーケンスに差し替え
+            if nc == "オークマ":
+                depth_info["cuts"] = _okuma_cuts(depth_info["total_depth"], pitch)
 
             # パス数オーバーライド
             passes_str = self.passes_var.get().strip()
