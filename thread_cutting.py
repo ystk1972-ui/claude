@@ -581,7 +581,7 @@ def generate_okuma(params: dict) -> str:
         f"N80 G33 X{x_root:.3f} Z{z_end:.3f} F{pitch:.3f}"
     )
     lines += [
-        "( AIRCUTTING or DEBURRING )",
+        "( AIRCUTTING )",
         f"N70 G00 X{x_approach:.3f} Z{z_approach:.3f}",
         g33_line,
         f"N90 G00 X{x_approach:.3f}",
@@ -670,7 +670,7 @@ def generate_fanuc(params: dict) -> str:
     z_approach_finish = round(z_approach + direction * z_shift, 3)
     lines += [
         "",
-        "( AIRCUTTING or DEBURRING )",
+        "( AIRCUTTING )",
         f"N80 G00 X{x_end_dia:.3f} Z{z_approach_finish:.3f}",
         f"N90 G32 X{x_end_dia:.3f} Z{z_end:.3f} F{pitch:.3f}",
         f"N100 G00 X{x_approach:.3f}",
