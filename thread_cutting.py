@@ -553,7 +553,7 @@ def generate_okuma(params: dict) -> str:
         f"( Pitch  : {pitch:.4f} mm )",
         f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
-        f"( Cycle  : G71 長手ねじ切り複合サイクル / {cut_mode} )",
+        f"( Cycle  : G71 COMBINED THREAD CUTTING CYCLE / {cut_mode} )",
         "",
         "N10 G00 X500.0 Z500.0",
         "N20 G50 S2000",
@@ -561,7 +561,7 @@ def generate_okuma(params: dict) -> str:
         "N40 G00 T0101",
         f"N50 G00 X{x_approach:.3f} Z{z_approach:.3f}",
         "",
-        "( G71 長手ねじ切り複合サイクル )",
+        "( G71 COMBINED THREAD CUTTING CYCLE )",
     ]
 
     if is_taper:
@@ -646,7 +646,7 @@ def generate_fanuc(params: dict) -> str:
         "N40 G00 T0101",
         f"N50 G00 X{x_approach:.3f} Z{z_start + pitch * 3:.3f}",
         "",
-        f"( G76 複合ねじ切りサイクル )",
+        f"( G76 COMBINED THREAD CUTTING CYCLE )",
         f"N60 G76 P0{2}1{1}{angle:02d} Q{min_cut_um} R0.05",
     ]
 
