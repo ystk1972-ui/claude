@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
-_VERSION = "1.3.0"
+_VERSION = "1.3.1"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
