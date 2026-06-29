@@ -503,10 +503,11 @@ def _okuma_cuts(actual_depth: float, pitch: float) -> list:
     """
     Okuma G71 の実切り込みシーケンス（半径値）を生成する。
 
-    アルゴリズム:
-      1. D ずつ定量切り込み（粗切り目標 H-U の D 手前まで）
-      2. D/2 → D/4 → D/8 → D/8（合計 D、粗切り目標に到達）
-      3. 仕上パス U
+    実機検証済みアルゴリズム（M12x1.5 実測値より逆算）:
+      1. 初回切り込み D
+      2. D/2 ずつ定量切り込み（残り ≤ D/2 になるまで）
+      3. 漸減パス D/4 → D/8 → D/8（合計 D/2、粗切り目標 H-U に到達）
+      4. 仕上パス U
     """
     U = _OKUMA_U
     rough = actual_depth - U
@@ -515,18 +516,25 @@ def _okuma_cuts(actual_depth: float, pitch: float) -> list:
 
     D = round(min(0.3 * pitch, rough * 0.4), 4)
     D = max(D, 0.01)
+    half_D = round(D / 2, 4)
 
     cuts = []
     cumulative = 0.0
 
-    # 定量 D パス：(rough - D) に達するまで繰り返す
-    threshold = rough - D
-    while cumulative + D <= threshold + 1e-9:
-        cuts.append(D)
-        cumulative = round(cumulative + D, 4)
+    # 初回パス：D
+    c = round(min(D, rough), 4)
+    cuts.append(c)
+    cumulative = round(cumulative + c, 4)
 
-    # 漸減パス：D/2 → D/4 → D/8 → D/8 で残り rough - cumulative を消化
-    for frac in (0.5, 0.25, 0.125, 0.125):
+    # 定量 D/2 パス：残り ≤ D/2 になるまで繰り返す
+    threshold = rough - half_D
+    while cumulative < threshold - 1e-9:
+        c = round(min(half_D, rough - cumulative), 4)
+        cuts.append(c)
+        cumulative = round(cumulative + c, 4)
+
+    # 漸減パス：D/4 → D/8 → D/8（合計 D/2、粗切り目標に到達）
+    for frac in (0.25, 0.125, 0.125):
         remaining = round(rough - cumulative, 4)
         if remaining <= 1e-9:
             break
@@ -534,7 +542,7 @@ def _okuma_cuts(actual_depth: float, pitch: float) -> list:
         cuts.append(c)
         cumulative = round(cumulative + c, 4)
 
-    # 仕上パス
+    # 仕上パス U
     finish = round(actual_depth - cumulative, 4)
     if finish > 1e-9:
         cuts.append(finish)
