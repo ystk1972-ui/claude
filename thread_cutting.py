@@ -814,6 +814,17 @@ class ThreadCuttingApp(tk.Tk):
                               width=8)
         cb_nr.pack(anchor="w")
 
+        # ---- 7. パス数 ----
+        grp7 = ttk.LabelFrame(left, text="7. パス数 (空白=自動)", padding=8)
+        grp7.pack(fill="x", pady=(0, 8))
+
+        self.passes_var = tk.StringVar(value="")
+        fr7 = ttk.Frame(grp7)
+        fr7.pack(fill="x")
+        ttk.Entry(fr7, textvariable=self.passes_var, width=6).pack(side="left")
+        self.passes_label = ttk.Label(fr7, text="", foreground="#888888")
+        self.passes_label.pack(side="left", padx=(8, 0))
+
         # ---- 生成ボタン ----
         btn_frame = ttk.Frame(left)
         btn_frame.pack(fill="x", pady=(4, 0))
@@ -942,6 +953,32 @@ class ThreadCuttingApp(tk.Tk):
 
             d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
             depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam, size_nm)
+
+            # パス数オーバーライド
+            passes_str = self.passes_var.get().strip()
+            auto_passes = len(depth_info["cuts"])
+            if passes_str:
+                n = int(passes_str)
+                if n < 1:
+                    raise ValueError("パス数は1以上を指定してください。")
+                actual_depth = depth_info["total_depth"]
+                first_cut = actual_depth / math.sqrt(n)
+                min_cut = max(0.05, pitch * 0.02)
+                cuts = []
+                remaining = actual_depth
+                for i in range(1, n + 1):
+                    if i < n:
+                        c = (math.sqrt(i) - math.sqrt(i - 1)) * first_cut
+                        c = max(c, min_cut)
+                        c = min(c, remaining)
+                        cuts.append(round(c, 4))
+                        remaining = round(actual_depth - sum(cuts), 4)
+                    else:
+                        cuts.append(round(remaining, 4))
+                depth_info["cuts"] = cuts
+                self.passes_label.config(text=f"(自動: {auto_passes} パス)")
+            else:
+                self.passes_label.config(text=f"→ 自動: {auto_passes} パス")
 
             params = {
                 "thread_name": f"{size_nm}  P={pitch:.4f}mm",
