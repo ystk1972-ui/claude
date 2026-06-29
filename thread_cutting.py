@@ -689,7 +689,7 @@ def generate_fanuc(params: dict) -> str:
         f"( Thread : {t['thread_name']} )",
         f"( Type   : {'EXTERNAL THREAD' if is_external else 'INTERNAL THREAD'} )",
         f"( Pitch  : {pitch:.4f} mm )",
-        f"( Depth  : {total_depth:.4f} mm  [{len(cuts)} passes] )",
+        f"( Depth  : {total_depth:.4f} mm  [{len(cuts) + 2} passes] )",
         f"( Nose R : {t['nose_r']} mm )",
         "",
         "O0001",
@@ -1013,7 +1013,8 @@ class ThreadCuttingApp(tk.Tk):
 
             # パス数オーバーライド
             passes_str = self.passes_var.get().strip()
-            auto_passes = len(depth_info["cuts"])
+            _finish_passes = 0 if nc == "オークマ" else 2
+            auto_passes = len(depth_info["cuts"]) + _finish_passes
             if passes_str:
                 n = int(passes_str)
                 if n < 1:
@@ -1066,7 +1067,7 @@ class ThreadCuttingApp(tk.Tk):
                 f"雌ねじ有効径(6H平均): {d2i:.4f} mm"                     if d2i else "",
                 f"X目標径(谷径/山径) : {xt:.4f} mm"                       if xt is not None else "",
                 f"切り込み深さ(片側) : {depth_info['total_depth']:.4f} mm",
-                f"パス数             : {len(depth_info['cuts'])}",
+                f"パス数             : {len(depth_info['cuts']) + (2 if nc != 'オークマ' else 0)}",
                 f"各パス切り込み     : {[f'{c:.4f}' for c in depth_info['cuts']]}",
             ]
             info_lines = [l for l in info_lines if l]
