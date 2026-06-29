@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
+_VERSION = "1.3.0"
+
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
 # ============================================================
@@ -743,7 +745,7 @@ def generate_fanuc(params: dict) -> str:
 class ThreadCuttingApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("NC旋盤 ねじ切りプログラム生成")
+        self.title(f"NC旋盤 ねじ切りプログラム生成  v{_VERSION}")
         self.resizable(True, True)
         self.configure(bg="#2b2b2b")
 
