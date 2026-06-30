@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
-_VERSION = "1.4.2"
+_VERSION = "1.4.3"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -505,11 +505,11 @@ _MATERIAL_STOCK = 0.1  # 素材仕上代（直径値 mm）— ねじ切り前の
 def _okuma_cuts(adj_depth: float, pitch: float) -> list:
     """
     Okuma G71 実機パスシーケンス（半径値）。実機検証に基づくアルゴリズム:
-      1. 定量 D パス（cumul < H_rough - 2D の間）
-      2. 遷移パス（H_rough - D の位置まで端数1パス）
-      3. テーパー：D/2, D/4, D/8, D/8（合計 D）
-      4. 仕上：U
-    H_rough - D → H_rough - D + D = H_rough（テーパーで丁度到達）
+      定量 D パス: cumul <= H-U-D（直径値）の間、各パス = min(D, threshold-cumul)
+                  → 端数パス（遷移）は while ループ内で自然に生成される
+      テーパー: D/2, D/4, D/8, D/8
+      仕上: U
+    ※半径値では threshold = H_rough - D
     """
     U = _OKUMA_U / 2                        # 半径値
     H_rough = round(adj_depth - U, 6)
@@ -522,18 +522,13 @@ def _okuma_cuts(adj_depth: float, pitch: float) -> list:
 
     cuts = []
     cumul = 0.0
+    threshold = round(H_rough - D, 6)      # (H-U-D)/2 in radius
 
-    # 定量 D パス
-    threshold = H_rough - 2 * D
+    # 定量 D パス（累積が threshold に達するまで、端数は自動的に遷移パスになる）
     while cumul < threshold - 1e-9:
-        cuts.append(round(D, 4))
-        cumul = round(cumul + D, 4)
-
-    # 遷移パス（H_rough - D の位置まで）
-    transition = round(H_rough - D - cumul, 4)
-    if transition > 1e-9:
-        cuts.append(transition)
-        cumul = round(cumul + transition, 4)
+        cut = round(min(D, threshold - cumul), 4)
+        cuts.append(cut)
+        cumul = round(cumul + cut, 4)
 
     # テーパー：D/2, D/4, D/8, D/8
     for frac in (0.5, 0.25, 0.125, 0.125):
