@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
-_VERSION = "1.3.1"
+_VERSION = "1.4.0"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -499,7 +499,8 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
     }
 
 
-_OKUMA_U = 0.1  # 仕上代（直径値 mm）— G71 U パラメータ = この値
+_OKUMA_U        = 0.1  # 仕上代（直径値 mm）— G71 U パラメータ = この値
+_MATERIAL_STOCK = 0.1  # 素材仕上代（直径値 mm）— ねじ切り前の外径/内径余裕
 
 def _okuma_cuts(actual_depth: float, pitch: float) -> list:
     """
@@ -591,9 +592,10 @@ def generate_okuma(params: dict) -> str:
         x_root = round(x_target, 3) if x_target is not None else round(d_nominal + total_depth * 2, 3)
 
     # G71 パラメータ（直径値）
+    adj_depth = depth_info.get("adj_total_depth", total_depth)
     d1_dia = round(cuts[0] * 2, 4)          # 初回切り込み（直径値）
     u_dia  = _OKUMA_U                       # 仕上代（直径値）
-    h_dia  = round(total_depth * 2, 4)      # 外径と谷径の差（直径値）
+    h_dia  = round(adj_depth * 2, 4)        # 素材仕上代込みの全切込み（直径値）
 
     # テーパー量 I：ねじ長さ ÷ 32（1/16テーパーの半径差）
     taper_i = round(abs(z_end - z_start) / 32.0, 3) if is_taper else None
@@ -666,9 +668,10 @@ def generate_fanuc(params: dict) -> str:
     # G76 パラメータ
     # m=2(仕上げ回数), r=11(面取り), a=60or55(角度)
     angle = depth_info["angle_deg"]
+    adj_depth    = depth_info.get("adj_total_depth", total_depth)
     first_cut_um = int(cuts[0] * 1000)   # μm 単位
     min_cut_um   = max(50, int(min(cuts) * 1000))
-    depth_um     = int(total_depth * 1000)
+    depth_um     = int(adj_depth * 1000)  # 素材仕上代込みの全切込み（μm）
 
     x_target = depth_info.get("x_target")
     if is_external:
@@ -1009,9 +1012,31 @@ class ThreadCuttingApp(tk.Tk):
             d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
             depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam, size_nm)
 
-            # オークマ G71 固有の切り込みシーケンスに差し替え
+            # 素材仕上代を加算した調整深さ（半径値）
+            # 外径+0.1mm / 内径-0.1mm（直径値）= 0.05mm（半径値）を追加
+            adj_depth = round(depth_info["total_depth"] + _MATERIAL_STOCK / 2, 4)
+            depth_info["adj_total_depth"] = adj_depth
+
+            # オークマ G71 固有の切り込みシーケンスに差し替え（adj_depth 基準）
             if nc == "オークマ":
-                depth_info["cuts"] = _okuma_cuts(depth_info["total_depth"], pitch)
+                depth_info["cuts"] = _okuma_cuts(adj_depth, pitch)
+            else:
+                # ファナック：adj_depth で等断面積法を再計算
+                fc  = min(0.3 * pitch, adj_depth * 0.4)
+                mc  = max(0.05, pitch * 0.02)
+                cuts_adj = []
+                rem = adj_depth
+                cn  = 0
+                while rem > 0.001:
+                    cn += 1
+                    c = fc if cn == 1 else max((math.sqrt(cn) - math.sqrt(cn - 1)) * fc, mc)
+                    c = min(c, rem)
+                    cuts_adj.append(round(c, 4))
+                    rem -= c
+                    if rem <= mc:
+                        cuts_adj[-1] = round(cuts_adj[-1] + rem, 4)
+                        rem = 0
+                depth_info["cuts"] = cuts_adj
 
             # パス数オーバーライド
             passes_str = self.passes_var.get().strip()
@@ -1021,18 +1046,17 @@ class ThreadCuttingApp(tk.Tk):
                 n = int(passes_str)
                 if n < 1:
                     raise ValueError("パス数は1以上を指定してください。")
-                actual_depth = depth_info["total_depth"]
-                first_cut = actual_depth / math.sqrt(n)
+                first_cut = adj_depth / math.sqrt(n)
                 min_cut = max(0.05, pitch * 0.02)
                 cuts = []
-                remaining = actual_depth
+                remaining = adj_depth
                 for i in range(1, n + 1):
                     if i < n:
                         c = (math.sqrt(i) - math.sqrt(i - 1)) * first_cut
                         c = max(c, min_cut)
                         c = min(c, remaining)
                         cuts.append(round(c, 4))
-                        remaining = round(actual_depth - sum(cuts), 4)
+                        remaining = round(adj_depth - sum(cuts), 4)
                     else:
                         cuts.append(round(remaining, 4))
                 depth_info["cuts"] = cuts
