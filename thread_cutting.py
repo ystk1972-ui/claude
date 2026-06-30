@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
-_VERSION = "1.4.3"
+_VERSION = "1.4.4"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -527,6 +527,8 @@ def _okuma_cuts(adj_depth: float, pitch: float) -> list:
     # 定量 D パス（累積が threshold に達するまで、端数は自動的に遷移パスになる）
     while cumul < threshold - 1e-9:
         cut = round(min(D, threshold - cumul), 4)
+        if cut <= 0:
+            break
         cuts.append(cut)
         cumul = round(cumul + cut, 4)
 
