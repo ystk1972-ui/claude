@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 import math
 
-_VERSION = "1.4.0"
+_VERSION = "1.4.1"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -502,51 +502,46 @@ def calc_thread_depth(pitch: float, nose_r: float, thread_type: str,
 _OKUMA_U        = 0.1  # 仕上代（直径値 mm）— G71 U パラメータ = この値
 _MATERIAL_STOCK = 0.1  # 素材仕上代（直径値 mm）— ねじ切り前の外径/内径余裕
 
-def _okuma_cuts(actual_depth: float, pitch: float) -> list:
+def _okuma_cuts(adj_depth: float, pitch: float) -> list:
     """
-    Okuma G71 の実切り込みシーケンス（半径値）を生成する。
-    D・U はすべて直径値で定義し、内部計算は /2 で半径に変換する。
-
-    アルゴリズム（直径値ベース）:
-      1. D ずつ定量切り込み（累積 >= 荒切り目標 H-U-D になるまで。その点を含む）
-      2. D/2 → D/4 → D/8 → D/8（合計 D、粗切り目標 H-U に到達。残り量にクリップ）
-      3. 仕上パス U
+    Okuma G71 実機パスシーケンス（半径値）。実機検証に基づくアルゴリズム:
+      1. 定量 D パス（cumul < H_rough - 2D の間）
+      2. 遷移パス（H_rough - D の位置まで端数1パス）
+      3. テーパー：D/2, D/4, D/8, D/8（合計 D）
+      4. 仕上：U
+    H_rough - D → H_rough - D + D = H_rough（テーパーで丁度到達）
     """
-    U = _OKUMA_U / 2                        # 半径値に変換
-    rough = actual_depth - U
-    if rough <= 1e-9:
-        return [round(actual_depth, 4)]
+    U = _OKUMA_U / 2                        # 半径値
+    H_rough = round(adj_depth - U, 6)
+    if H_rough <= 1e-9:
+        return [round(adj_depth, 4)]
 
-    rough_dia = rough * 2                   # 直径値
-    D_dia = round(min(0.3 * pitch, rough_dia * 0.4), 4)   # 直径値で算出
+    D_dia = round(min(0.3 * pitch, H_rough * 2 * 0.4), 4)
     D_dia = max(D_dia, 0.02)
-    D = D_dia / 2                           # 半径値に変換（内部計算用）
+    D = D_dia / 2                           # 半径値
 
     cuts = []
-    cumulative = 0.0
+    cumul = 0.0
 
-    # 定量 D パス：cumulative >= (rough - D) になるまで続ける（到達点含む）
-    while cumulative < rough - D - 1e-9:
-        c = round(min(D, rough - cumulative), 4)
-        cuts.append(c)
-        cumulative = round(cumulative + c, 4)
+    # 定量 D パス
+    threshold = H_rough - 2 * D
+    while cumul < threshold - 1e-9:
+        cuts.append(round(D, 4))
+        cumul = round(cumul + D, 4)
 
-    # 漸減パス：D/2 → D/4 → D/8 → D/8
-    # 残りが直径 0.01mm（半径 0.005mm）以下の場合は直前パスに吸収してクリップしない
+    # 遷移パス（H_rough - D の位置まで）
+    transition = round(H_rough - D - cumul, 4)
+    if transition > 1e-9:
+        cuts.append(transition)
+        cumul = round(cumul + transition, 4)
+
+    # テーパー：D/2, D/4, D/8, D/8
     for frac in (0.5, 0.25, 0.125, 0.125):
-        remaining = round(rough - cumulative, 4)
-        if remaining <= 1e-9:
-            break
-        if remaining <= 0.005 and cuts:
-            cuts[-1] = round(cuts[-1] + remaining, 4)
-            cumulative = round(cumulative + remaining, 4)
-            break
-        c = round(min(D * frac, remaining), 4)
-        cuts.append(c)
-        cumulative = round(cumulative + c, 4)
+        cuts.append(round(D * frac, 4))
+        cumul = round(cumul + D * frac, 4)
 
-    # 仕上パス U
-    finish = round(actual_depth - cumulative, 4)
+    # 仕上パス（丸め誤差吸収）
+    finish = round(adj_depth - cumul, 4)
     if finish > 1e-9:
         cuts.append(finish)
 
