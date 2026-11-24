@@ -271,3 +271,18 @@ def test_edited_diameter_survives_recommit(app):
     app.diam_var.set("15.900")
     app._commit_size()                 # フォーカス移動や生成時の再確定
     assert app.diam_var.get() == "15.900"
+
+
+def test_m12x1_uses_11_2_to_22_4_range(app):
+    # M12 は「11.2 を超え 22.4 以下」の区分 (Td2=0.118, TD2=0.160)。
+    # 以前は M10x1 と同じ区分の値 (11.268 / 11.425) が登録されていた。
+    d2, _d1, D1 = tc.METRIC_FINE_THREAD[("M12x1", 1.0)]
+    assert tc._d2_avg(d2, 1.0, True, None, "M12x1") == pytest.approx(11.265)
+    assert tc._d2_avg(d2, 1.0, False, None, "M12x1") == pytest.approx(11.430)
+    assert tc._d_major_avg(12.0, 1.0, "M12x1") == pytest.approx(11.884)
+    assert tc._D1_minor_avg(D1, 1.0, "M12x1") == pytest.approx(11.035)
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("M12x1")
+    app._generate()
+    assert app.errors == []
+    assert "任意入力" not in app.info_text.get("1.0", "end")   # 登録済みサイズ扱いのまま
