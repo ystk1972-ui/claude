@@ -3,7 +3,7 @@ from tkinter import ttk, scrolledtext, messagebox
 import math
 import re
 
-_VERSION = "1.5.1"
+_VERSION = "1.5.2"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -913,6 +913,7 @@ class ThreadCuttingApp(tk.Tk):
         style.configure("TEntry",      font=("Yu Gothic UI", 10))
         style.map("TButton", background=[("active", "#4a7fc1")], foreground=[("active", "white")])
 
+        self._committed_size = None   # 最後にピッチ・径を反映した呼び径
         self._build_ui()
         self._on_type_change()
 
@@ -986,6 +987,8 @@ class ThreadCuttingApp(tk.Tk):
                                     state="readonly", width=18)
         self.cb_size.grid(row=0, column=1, padx=4, pady=2)
         self.cb_size.bind("<<ComboboxSelected>>", lambda e: self._on_size_change())
+        self.cb_size.bind("<Return>",   lambda e: self._on_size_entered(True))
+        self.cb_size.bind("<FocusOut>", lambda e: self._on_size_entered(False))
 
         ttk.Label(grp4, text="ピッチ (mm):").grid(row=1, column=0, sticky="w")
         self.pitch_var = tk.StringVar()
@@ -1070,6 +1073,9 @@ class ThreadCuttingApp(tk.Tk):
         db = THREAD_DB[ttype]
         keys = list(db.keys())
 
+        # メートル細目だけ「M16x1」のような手入力を受け付ける
+        self.cb_size.configure(state="normal" if ttype == MF_TYPE else "readonly")
+
         # 呼び径リスト
         names = [k[0] for k in keys]
         self.cb_size["values"] = names
@@ -1077,23 +1083,54 @@ class ThreadCuttingApp(tk.Tk):
             self.cb_size.current(0)
         self._on_size_change()
 
+    def _entries(self, ttype: str, size_name: str) -> dict:
+        """size_name に該当する {(名前, ピッチ): 値} を返す。
+
+        メートル細目で未登録の名前は、基準寸法を計算した1行を返す。
+        """
+        found = {k: v for k, v in THREAD_DB[ttype].items() if k[0] == size_name}
+        if not found and ttype == MF_TYPE:
+            try:
+                name, d, pitch = parse_metric_fine(size_name)
+            except ValueError:
+                return {}
+            found = {(name, pitch): metric_basic_dims(d, pitch)}
+        return found
+
+    def _commit_size(self):
+        """メートル細目の手入力を正規化して確定する。不正な入力は ValueError。"""
+        ttype = self.thread_type_var.get()
+        if ttype != MF_TYPE:
+            return
+        text = self.size_var.get()
+        if not any(k[0] == text for k in THREAD_DB[ttype]):
+            self.size_var.set(parse_metric_fine(text)[0])
+        if self.size_var.get() != self._committed_size:
+            self._on_size_change()
+
+    def _on_size_entered(self, show_error: bool):
+        try:
+            self._commit_size()
+        except ValueError as e:
+            if show_error:
+                messagebox.showerror("入力エラー", str(e))
+
     def _on_size_change(self):
         ttype = self.thread_type_var.get()
-        db = THREAD_DB[ttype]
         size_name = self.size_var.get()
 
         # そのサイズに対するピッチ候補
-        pitches = [str(k[1]) for k in db.keys() if k[0] == size_name]
+        pitches = [str(k[1]) for k in self._entries(ttype, size_name)]
         self.cb_pitch["values"] = pitches
         if pitches:
             self.cb_pitch.current(0)
+        self._committed_size = size_name
 
         # 外径を自動セット
         self._set_default_diameter()
 
     def _set_default_diameter(self):
         ttype     = self.thread_type_var.get()
-        db        = THREAD_DB[ttype]
         size_name = self.size_var.get()
         is_ext    = (self.gender_var.get() == "外")
 
@@ -1102,9 +1139,7 @@ class ThreadCuttingApp(tk.Tk):
         except ValueError:
             cur_pitch = None
 
-        for key, val in db.items():
-            if key[0] != size_name:
-                continue
+        for key, val in self._entries(ttype, size_name).items():
             if cur_pitch is not None and abs(key[1] - cur_pitch) > 1e-6:
                 continue
             pitch = key[1]
@@ -1139,6 +1174,7 @@ class ThreadCuttingApp(tk.Tk):
     # ----------------------------------------------------------
     def _generate(self):
         try:
+            self._commit_size()
             ttype    = self.thread_type_var.get()
             is_ext   = (self.gender_var.get() == "外")
             nc       = self.nc_var.get()
@@ -1153,13 +1189,20 @@ class ThreadCuttingApp(tk.Tk):
                 messagebox.showerror("エラー", "Z切り始めとZ切り終わりが同じです。")
                 return
 
-            db = THREAD_DB[ttype]
-            key = (size_nm, pitch)
-            if key not in db:
+            entries = self._entries(ttype, size_nm)
+            key = next((k for k in entries if abs(k[1] - pitch) < 1e-6), None)
+            if key is None:
                 messagebox.showerror("エラー", f"サイズ/ピッチの組み合わせ ({size_nm}, {pitch}) が見つかりません。")
                 return
 
-            d2_basic = db[key][0]   # 全DBで先頭値が基準有効径
+            d2_basic = entries[key][0]   # 全DBで先頭値が基準有効径
+
+            # 任意入力のときは公差の出典を計算情報に表示する
+            tol_note = ""
+            if key not in THREAD_DB[ttype]:
+                exact = _iso965_tol(_metric_d_from_name(size_nm), pitch)["exact"]
+                tol_note = "公差(任意入力)     : ISO 965-1 6g/6H " + (
+                    "規格表の値" if exact else "計算式による概算(規格表にない径×ピッチ)")
             depth_info = calc_thread_depth(pitch, nose_r, ttype, is_ext, d2_basic, diam, size_nm)
 
             # 素材仕上代を加算した調整深さ（半径値）
@@ -1245,6 +1288,7 @@ class ThreadCuttingApp(tk.Tk):
                 f"切り込み深さ(片側) : {depth_info['total_depth']:.4f} mm",
                 f"パス数             : {len(depth_info['cuts']) + (2 if nc != 'オークマ' else 0)}",
                 f"各パス切り込み     : {[f'{c:.4f}' for c in depth_info['cuts']]}",
+                tol_note,
             ]
             info_lines = [l for l in info_lines if l]
             self._set_text(self.info_text, "\n".join(info_lines))

@@ -329,7 +329,7 @@ def _iso965_tol(d: float, pitch: float) -> dict:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_metric_fine_custom.py -q`
-Expected: all pass (80 tests).
+Expected: all pass (75 tests).
 
 - [ ] **Step 5: Bump version and commit**
 
@@ -478,18 +478,28 @@ Append to `tests/test_metric_fine_custom.py`:
 import tkinter as tk
 
 
-@pytest.fixture
-def app(monkeypatch):
+@pytest.fixture(scope="module")
+def _shared_app():
+    # Tk ルートを何度も作り直すと Windows で断続的に失敗するため、1つを使い回す
     try:
         a = tc.ThreadCuttingApp()
     except tk.TclError:
         pytest.skip("Tk が使えない環境")
     a.withdraw()
+    yield a
+    a.destroy()
+
+
+@pytest.fixture
+def app(_shared_app, monkeypatch):
+    a = _shared_app
     errors = []
     monkeypatch.setattr(tc.messagebox, "showerror", lambda title, msg: errors.append(msg))
     a.errors = errors
-    yield a
-    a.destroy()
+    a.gender_var.set("外")
+    _select_type(a, "メートルねじ (M)")
+    a._clear()
+    return a
 
 
 def _select_type(app, ttype):

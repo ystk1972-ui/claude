@@ -174,3 +174,100 @@ def test_calc_thread_depth_m16x1():
     assert inn["d2_int_avg"] == pytest.approx(15.430)
     assert inn["x_target"] == pytest.approx(
         (15.430 / 2 + 0.25 / tan30 - 0.1 / sin30 + 0.1) * 2, abs=1e-4)
+
+
+import tkinter as tk
+
+
+@pytest.fixture(scope="module")
+def _shared_app():
+    # Tk ルートを何度も作り直すと Windows で断続的に失敗するため、1つを使い回す
+    try:
+        a = tc.ThreadCuttingApp()
+    except tk.TclError:
+        pytest.skip("Tk が使えない環境")
+    a.withdraw()
+    yield a
+    a.destroy()
+
+
+@pytest.fixture
+def app(_shared_app, monkeypatch):
+    a = _shared_app
+    errors = []
+    monkeypatch.setattr(tc.messagebox, "showerror", lambda title, msg: errors.append(msg))
+    a.errors = errors
+    a.gender_var.set("外")
+    _select_type(a, "メートルねじ (M)")
+    a._clear()
+    return a
+
+
+def _select_type(app, ttype):
+    app.thread_type_var.set(ttype)
+    app._on_type_change()
+
+
+def test_size_box_editable_only_for_mf(app):
+    assert str(app.cb_size.cget("state")) == "readonly"      # 初期: メートルねじ (M)
+    _select_type(app, tc.MF_TYPE)
+    assert str(app.cb_size.cget("state")) == "normal"
+    _select_type(app, "管用平行ねじ (G)")
+    assert str(app.cb_size.cget("state")) == "readonly"
+
+
+def test_typed_size_fills_pitch_and_diameter(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("m16X1")
+    app._commit_size()
+    assert app.size_var.get() == "M16x1"
+    assert app.pitch_var.get() == "1.0"
+    assert app.diam_var.get() == "15.884"
+    app.gender_var.set("内")
+    app._set_default_diameter()
+    assert app.diam_var.get() == "15.035"
+
+
+def test_generate_typed_size(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("M16x1")
+    app._generate()
+    assert app.errors == []
+    assert app.prog_text.get("1.0", "end").strip()
+    info = app.info_text.get("1.0", "end")
+    assert "規格表の値" in info
+    assert "15.2650" in info
+
+
+def test_generate_approximate_note(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("M50x1")
+    app._generate()
+    assert app.errors == []
+    assert "計算式による概算" in app.info_text.get("1.0", "end")
+
+
+def test_registered_size_has_no_tolerance_note(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("M10x1.25")
+    app._generate()
+    assert app.errors == []
+    assert "任意入力" not in app.info_text.get("1.0", "end")
+    assert app.diam_var.get() == "9.866"
+
+
+def test_invalid_size_reports_error(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("abc")
+    app._generate()
+    assert app.errors == ["「M16x1」の形式で入力してください。"]
+    assert app.prog_text.get("1.0", "end").strip() == ""
+
+
+def test_edited_diameter_survives_recommit(app):
+    _select_type(app, tc.MF_TYPE)
+    app.size_var.set("M16x1")
+    app._commit_size()
+    app.diam_var.set("15.900")
+    app._commit_size()                 # フォーカス移動や生成時の再確定
+    assert app.diam_var.get() == "15.900"
