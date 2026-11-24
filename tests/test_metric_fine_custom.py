@@ -134,3 +134,43 @@ def test_metric_d_from_name():
     assert tc._metric_d_from_name("M2.5") == 2.5
     assert tc._metric_d_from_name("G1/2") is None
     assert tc._metric_d_from_name(None) is None
+
+
+import math
+
+
+def test_m16x1_midpoints():
+    d2, _d1, D1 = tc.metric_basic_dims(16, 1)
+    assert tc._d_major_avg(16.0, 1.0, "M16x1") == pytest.approx(15.884)
+    assert tc._d2_avg(d2, 1.0, True, 15.884, "M16x1") == pytest.approx(15.265)
+    assert tc._d2_avg(d2, 1.0, False, 15.035, "M16x1") == pytest.approx(15.430)
+    assert tc._D1_minor_avg(D1, 1.0, "M16x1") == pytest.approx(15.035)
+
+
+def test_registered_sizes_still_use_direct_tables():
+    for (name, p), (d2_avg, d_avg) in tc._METRIC_EXT_AVG_6G.items():
+        assert tc._d2_avg(0.0, p, True, None, name) == d2_avg
+        assert tc._d_major_avg(0.0, p, name) == d_avg
+    for (name, p), (D2_avg, D1_avg) in tc._METRIC_INT_AVG_6H.items():
+        assert tc._d2_avg(0.0, p, False, None, name) == D2_avg
+        assert tc._D1_minor_avg(0.0, p, name) == D1_avg
+
+
+def test_non_metric_names_unchanged():
+    # 管用平行ねじは従来の予備計算のまま (es=-0.032 は _PD_TOL_6HG の P=1.75〜2.5 相当)
+    assert tc._d_major_avg(20.955, 1.814, "G1/2") == round(
+        20.955 + tc._PD_TOL_6HG[1.75][0] - tc._MAJOR_TOL_6G[1.75] / 2, 4)
+
+
+def test_calc_thread_depth_m16x1():
+    d2, _d1, _D1 = tc.metric_basic_dims(16, 1)
+    tan30, sin30 = math.tan(math.radians(30)), 0.5
+    ext = tc.calc_thread_depth(1.0, 0.1, tc.MF_TYPE, True, d2, 15.884, "M16x1")
+    assert ext["d2_ext_avg"] == pytest.approx(15.265)
+    assert ext["x_target"] == pytest.approx(
+        (15.265 / 2 - 0.25 / tan30 + 0.1 / sin30 - 0.1) * 2, abs=1e-4)
+    assert ext["total_depth"] == pytest.approx((15.884 - ext["x_target"]) / 2, abs=1e-4)
+    inn = tc.calc_thread_depth(1.0, 0.1, tc.MF_TYPE, False, d2, 15.035, "M16x1")
+    assert inn["d2_int_avg"] == pytest.approx(15.430)
+    assert inn["x_target"] == pytest.approx(
+        (15.430 / 2 + 0.25 / tan30 - 0.1 / sin30 + 0.1) * 2, abs=1e-4)

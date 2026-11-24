@@ -3,7 +3,7 @@ from tkinter import ttk, scrolledtext, messagebox
 import math
 import re
 
-_VERSION = "1.5.0"
+_VERSION = "1.5.1"
 
 # ============================================================
 # ISO/JIS ねじ規格データベース（オフライン内蔵）
@@ -471,12 +471,26 @@ _METRIC_INT_AVG_6H: dict = {
 }
 
 
+def _iso965_for(thread_name, pitch: float):
+    """メートルねじ名なら ISO 965-1 公差 dict、それ以外（または範囲外）は None。"""
+    d = _metric_d_from_name(thread_name)
+    if d is None:
+        return None
+    try:
+        return _iso965_tol(d, pitch)
+    except ValueError:
+        return None
+
+
 def _d_major_avg(d_basic: float, pitch: float, thread_name: str = None) -> float:
     """外ねじ 山径（外径）の公差域中間値 (6g)。"""
     if thread_name is not None:
         entry = _METRIC_EXT_AVG_6G.get((thread_name, pitch))
         if entry is not None:
             return entry[1]
+    tol = _iso965_for(thread_name, pitch)
+    if tol is not None:
+        return round(d_basic + tol["es"] - tol["Td"] / 2, 4)
     p  = min(_PD_TOL_6HG.keys(),   key=lambda x: abs(x - pitch))
     p2 = min(_MAJOR_TOL_6G.keys(), key=lambda x: abs(x - pitch))
     es = _PD_TOL_6HG[p][0]
@@ -492,6 +506,9 @@ def _D1_minor_avg(D1_basic: float, pitch: float, thread_name: str = None) -> flo
         entry = _METRIC_INT_AVG_6H.get((thread_name, pitch))
         if entry is not None:
             return entry[1]
+    tol = _iso965_for(thread_name, pitch)
+    if tol is not None:
+        return round(D1_basic + tol["TD1"] / 2, 4)
     p   = min(_MINOR_TOL_6H.keys(), key=lambda x: abs(x - pitch))
     TD1 = _MINOR_TOL_6H[p]
     return round(D1_basic + TD1, 4)
@@ -533,6 +550,11 @@ def _d2_avg(d2_basic: float, pitch: float, is_external: bool,
             entry = _METRIC_INT_AVG_6H.get((thread_name, pitch))
             if entry is not None:
                 return entry[0]
+    tol = _iso965_for(thread_name, pitch)
+    if tol is not None:
+        if is_external:
+            return round(d2_basic + tol["es"] - tol["Td2"] / 2, 4)
+        return round(d2_basic + tol["TD2"] / 2, 4)
     p = min(_PD_TOL_6HG.keys(), key=lambda x: abs(x - pitch))
     es = _PD_TOL_6HG[p][0]
     if d_nominal is not None:
